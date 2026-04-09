@@ -27,7 +27,7 @@ LIST_API_KEYS = [
 ]
 # =========================================================
 
-st.set_page_config(page_title="DỊCH FILE SRT SANG TIẾNG VIỆT", page_icon="☯️", layout="wide")
+st.set_page_config(page_title="Donghua Ngũ Hành v42", page_icon="☯️", layout="wide")
 
 st.markdown("""
     <style>
@@ -54,13 +54,13 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.markdown("<h1>DỊCH FILE SRT SANG TIẾNG VIỆT</h1>", unsafe_allow_html=True)
+st.markdown("<h1>☯️ DONGHUA STUDIO - NGŨ HÀNH TRẬN (V42)</h1>", unsafe_allow_html=True)
 
 # --- HÀM GỌI API GEMINI ---
 def call_gemini(api_key, text_data):
     try:
         client = genai.Client(api_key=api_key)
-        sys_prompt = "Bạn là 1 chuyên gia dịch thuật phụ đề nhiệm vụ của bạn là dịch nội dung trong file srt sang tiếng việt theo phong cách cổ trang võ hiệp, tu tiên không được gượng và trau chuốt từ ngữ sao cho dễ lồng tiếng. Cấm thay đổi mốc thời gian (00:00:00,000) và số thứ tự đoạn hội thoại, không giải thích gì thêm"
+        sys_prompt = "Bạn là đại sư dịch thuật Donghua chuyên nghiệp. Dịch SRT sang tiếng Việt võ hiệp (Ta, Ngươi...). Giữ nguyên timestamps. CHỈ trả về nội dung tiếng việt giữ nguyên định dạng SRT."
         response = client.models.generate_content(
             model="gemini-3.1-flash-lite-preview", 
             contents=f"{sys_prompt}\n\nNỘI DUNG SRT:\n{text_data}",
@@ -90,7 +90,7 @@ valid_keys = [k.strip() for k in LIST_API_KEYS if "..." not in k and k.strip()]
 if file:
     if len(valid_keys) != 5:
         st.error("❌ Đại hiệp phải điền ĐỦ 5 API Key vào mảng LIST_API_KEYS để kích hoạt Ngũ Hành Trận!")
-    elif st.button("BẮT ĐẦU ⚔️"):
+    elif st.button("KÍCH HOẠT NGŨ HÀNH LIÊN HOÀN ⚔️"):
         try:
             start_time = time.time()
             
