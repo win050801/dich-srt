@@ -14,9 +14,11 @@ import time
 import re
 import traceback
 from concurrent.futures import ThreadPoolExecutor
+import threading
+from datetime import datetime, timedelta
 
 # =========================================================
-# NẠP 5 VIÊN LINH THẠCH GEMINI VÀO ĐÂY
+# NẠP 5 VIÊN LINH THẠCH GEMINI MỚI VÀO ĐÂY
 # =========================================================
 LIST_API_KEYS = [
     "AIzaSyCTpvM7EmyXiJ93PKMHDNDK_rDiR33pdHI",
@@ -27,68 +29,98 @@ LIST_API_KEYS = [
 ]
 # =========================================================
 
-st.set_page_config(page_title="Donghua Đại Phách v43", page_icon="⚔️", layout="wide")
+st.set_page_config(page_title="Donghua Vạn Biến v52", page_icon="🛑", layout="wide")
 
 st.markdown("""
     <style>
     .stApp { background-color: #0b0d11; color: #e0e0e0; }
-    .wave-box { padding: 15px; background: #1e293b; border-left: 5px solid #3b82f6; border-radius: 8px; margin-bottom: 15px; }
-    .worker-box { padding: 12px; border-radius: 8px; text-align: center; font-size: 0.85em; min-height: 100px; margin-bottom: 10px; }
+    .key-card { padding: 10px; border-radius: 8px; text-align: center; margin-bottom: 10px; border: 1px solid #334155; }
+    .key-active { background: #064e3b; color: #6ee7b7; border-color: #10b981; }
+    .key-busy { background: #1e3a8a; color: #93c5fd; border-color: #3b82f6; }
+    .key-dead { background: #450a0a; color: #fca5a5; border-color: #ef4444; text-decoration: line-through; }
+    .worker-box { padding: 12px; border-radius: 8px; text-align: center; font-size: 0.85em; min-height: 100px; }
     .status-running { background: #1e3a8a; border: 1px solid #3b82f6; color: #93c5fd; }
-    .status-done { background: #064e3b; border: 1px solid #10b981; color: #6ee7b7; }
-    .status-idle { background: #334155; border: 1px dashed #64748b; color: #94a3b8; opacity: 0.5; }
-    .status-warning { background: #78350f; border: 1px solid #f59e0b; color: #fcd34d; }
-    .status-dead { background: #450a0a; border: 1px solid #ef4444; color: #fca5a5; font-weight: bold; }
-    .countdown-box { padding: 15px; background: #1f2937; border: 1px dashed #fbbf24; border-radius: 8px; color: #fcd34d; text-align: center; margin: 20px 0; }
-    h1 { color: #60a5fa !important; text-align: center; }
+    .status-wait { background: #334155; border: 1px dashed #94a3b8; color: #cbd5e1; }
+    .status-done { background: #022c22; border: 1px solid #059669; color: #6ee7b7; }
+    .status-fatal { background: #7f1d1d; border: 2px solid #ef4444; color: #fecaca; font-weight: bold; }
+    .countdown-box { padding: 15px; background: #111827; border: 1px dashed #fbbf24; border-radius: 8px; color: #fcd34d; text-align: center; }
+    h1 { color: #ef4444 !important; text-align: center; }
     </style>
     """, unsafe_allow_html=True)
 
-st.markdown("<h1>⚔️ ĐẠI PHÁCH KỲ MÔN - THAY KEY (V43)</h1>", unsafe_allow_html=True)
+st.markdown("<h1>🛑 VẠN BIẾN QUY NHẤT - TỔNG LỆNH NGẮT (V52)</h1>", unsafe_allow_html=True)
+
+status_lock = threading.Lock()
+
+if 'key_manager' not in st.session_state:
+    st.session_state.key_manager = {
+        i: {
+            "status": "ACTIVE", 
+            "errors": 0, 
+            "in_use": False, 
+            "is_rate_limited": False,
+            "call_history": [], 
+            "key": k.strip()
+        } 
+        for i, k in enumerate(LIST_API_KEYS) if "..." not in k and k.strip()
+    }
+
+manager = st.session_state.key_manager
 
 def call_gemini(api_key, text_data):
     try:
         client = genai.Client(api_key=api_key)
-        sys_prompt = (
-        "Bạn là một đại sư dịch thuật phim cổ trang Trung Quốc. "
-        "Hãy dịch các đoạn SRT sau sang tiếng Việt phong cách VÕ HIỆP/TIÊN HIỆP.\n\n"
-        "QUY TẮC:\n"
-        "- Xưng hô: Ta, Ngươi, Huynh, Đệ, Muội, Lão phu, Tiểu tử, Bổn tọa, Tiền bối, Vãn bối...\n"
-        "- Văn phong: Hào sảng, trau chuốt, dễ đọc cho Voice-over.\n"
-        "- Kỹ thuật: GIỮ NGUYÊN timestamps. KHÔNG gộp/tách đoạn.\n"
-        "- Chỉ trả về nội dung SRT."
-    )
+        sys_prompt = "Dịch SRT sang tiếng Việt võ hiệp. Giữ nguyên timestamps."
         response = client.models.generate_content(
-            model="gemini-3.1-flash-lite-preview", 
-            contents=f"{sys_prompt}\n\nNỘI DUNG SRT:\n{text_data}",
+            model="gemini-3-flash-preview", 
+            contents=f"{sys_prompt}\n\n{text_data}",
             config=types.GenerateContentConfig(temperature=0.2)
         )
         return response.text.strip() if response.text else "EMPTY"
     except Exception as e:
         return f"ERR: {str(e)}"
 
-def countdown_timer(seconds, placeholder):
-    for i in range(seconds, 0, -1):
-        placeholder.markdown(f"<div class='countdown-box'>⏳ Thu hồi công lực: {i} giây...</div>", unsafe_allow_html=True)
-        time.sleep(1)
-    placeholder.empty()
+def check_rate_limit_local(local_manager, key_idx):
+    now = datetime.now()
+    one_minute_ago = now - timedelta(seconds=60)
+    with status_lock:
+        k = local_manager[key_idx]
+        k["call_history"] = [t for t in k["call_history"] if t > one_minute_ago]
+        if len(k["call_history"]) >= 5:
+            k["is_rate_limited"] = True
+            return False
+        k["call_history"].append(now)
+        k["is_rate_limited"] = False
+        return True
+
+# --- BẢNG TRẠNG THÁI REAL-TIME ---
+st.markdown("### 📡 Trạng Thái Ngũ Hành Linh Thạch")
+key_placeholders = st.columns(5)
+placeholders = [key_placeholders[i].empty() for i in range(5)]
+
+def render_realtime_keys():
+    for i in range(5):
+        k = manager.get(i, {"status": "DEAD"})
+        recent_calls = len([t for t in k.get("call_history", []) if t > datetime.now() - timedelta(seconds=60)])
+        if k["status"] == "DEAD": cls, txt = "key-dead", "❌ ĐÃ HỎNG"
+        elif k["is_rate_limited"]: cls, txt = "key-limit", "🧘 TỊNH TÂM"
+        elif k["in_use"]: cls, txt = "key-busy", "⚔️ LÂM TRẬN"
+        else: cls, txt = "key-active", "✅ RẢNH"
+        placeholders[i].markdown(f"<div class='key-card {cls}'><b>Key #{i+1}</b><br>{txt}<br><small>Hạn mức: {recent_calls}/5</small></div>", unsafe_allow_html=True)
+
+render_realtime_keys()
 
 file = st.file_uploader("Tải file .srt lên", type=["srt"])
-valid_keys = [k.strip() for k in LIST_API_KEYS if "..." not in k and k.strip()]
 
 if file:
-    if len(valid_keys) < 5:
-        st.error("❌ Đại hiệp hãy điền đủ 5 Key vào mã nguồn!")
-    elif st.button("KHỞI ĐỘNG ĐẠI PHÁCH TRẬN ⚔️"):
+    if st.button("KÍCH HOẠT TRẬN PHÁP V52 ⚔️"):
         try:
-            start_time = time.time()
-            raw_content = file.getvalue().decode("utf-8-sig", errors="replace").replace('\r\n', '\n').strip()
+            raw_content = file.getvalue().decode("utf-8-sig", errors="replace").strip()
             blocks = [b.strip() for b in re.split(r'\n\s*\n', raw_content) if b.strip()]
             
-            batch_size = 40
+            batch_size = 100 
             batches = [blocks[i:i + batch_size] for i in range(0, len(blocks), batch_size)]
             waves = [batches[i:i + 5] for i in range(0, len(batches), 5)]
-            total_waves = len(waves)
             
             final_results_map = {}
             progress_bar = st.progress(0.0)
@@ -98,77 +130,72 @@ if file:
 
             for wave_idx, wave_batches in enumerate(waves):
                 num_actual_tasks = len(wave_batches)
-                # display_status: lưu thông tin hiển thị của 5 slot Key
-                display_status = {j: {"status": "idle", "msg": "Đang nghỉ", "key_idx": j} for j in range(5)}
-                
-                wave_info.markdown(f"<div class='wave-box'>🌊 <b>ĐỢT SÓNG {wave_idx+1}/{total_waves}</b><br>Đang điều động linh thạch ứng biến...</div>", unsafe_allow_html=True)
+                display_status = {j: {"status": "idle", "msg": "Chờ lệnh"} for j in range(5)}
+                wave_info.markdown(f"#### 🌊 Đợt sóng {wave_idx+1}/{len(waves)}")
 
-                def worker(task_idx, text_chunk):
-                    """
-                    task_idx: index của đoạn trong đợt sóng (0-4)
-                    text_chunk: nội dung cần dịch
-                    """
-                    # Bắt đầu với Key tương ứng slot
-                    current_key_idx = task_idx 
-                    total_errors_this_task = 0
-                    
+                def worker(task_idx, text_chunk, local_manager):
                     while True:
-                        key_to_use = valid_keys[current_key_idx]
-                        display_status[task_idx] = {
-                            "status": "running", 
-                            "msg": f"Key #{current_key_idx+1}<br>Đang dịch...",
-                            "key_idx": current_key_idx
-                        }
+                        current_key_idx = None
+                        with status_lock:
+                            # Tìm Key sống và không bận
+                            for i in range(5):
+                                k = local_manager.get(i)
+                                if k and k["status"] == "ACTIVE" and not k["in_use"]:
+                                    current_key_idx = i
+                                    local_manager[current_key_idx]["in_use"] = True
+                                    break
                         
-                        # Gửi lệnh dịch
-                        res = call_gemini(key_to_use, text_chunk)
-                        
-                        if "ERR:" not in res:
-                            display_status[task_idx] = {
-                                "status": "done", 
-                                "msg": f"✅ Xong!<br>(Bởi Key #{current_key_idx+1})",
-                                "key_idx": current_key_idx
-                            }
-                            return task_idx, res
-                        else:
-                            total_errors_this_task += 1
+                        if current_key_idx is None:
+                            # KIỂM TRA SINH TỬ: Còn bất kỳ ai sống không?
+                            any_alive = any(k["status"] == "ACTIVE" for k in local_manager.values())
+                            if not any_alive:
+                                display_status[task_idx] = {"status": "fatal", "msg": "❌ HẾT KEY!"}
+                                return task_idx, "FATAL_ERROR"
                             
-                            # Nếu lỗi quá 5 lần trên Key hiện tại -> THAY KEY
-                            if total_errors_this_task >= 5:
-                                display_status[task_idx] = {
-                                    "status": "dead", 
-                                    "msg": f"❌ Key #{current_key_idx+1} KIỆT SỨC!<br>Đang thay người...",
-                                    "key_idx": current_key_idx
-                                }
-                                time.sleep(2)
-                                
-                                # Tìm Key tiếp theo (xoay vòng)
-                                current_key_idx = (current_key_idx + 1) % 5
-                                total_errors_this_task = 0 # Reset đếm lỗi cho Key mới
-                                continue 
-                            
-                            # Nếu chưa quá 5 lần -> Thử lại chính Key đó
-                            display_status[task_idx] = {
-                                "status": "warning", 
-                                "msg": f"⚠️ Key #{current_key_idx+1} NGHẼN<br>Thử lại lần {total_errors_this_task}",
-                                "key_idx": current_key_idx
-                            }
+                            display_status[task_idx] = {"status": "wait", "msg": "⏳ Chờ Key rảnh..."}
+                            time.sleep(3)
+                            continue
+
+                        if not check_rate_limit_local(local_manager, current_key_idx):
+                            with status_lock: local_manager[current_key_idx]["in_use"] = False
+                            display_status[task_idx] = {"status": "wait", "msg": "🧘 Nghỉ dưỡng..."}
                             time.sleep(5)
+                            current_key_idx = None
+                            continue
+
+                        display_status[task_idx] = {"status": "running", "msg": f"Key #{current_key_idx+1} dịch..."}
+                        res = call_gemini(local_manager[current_key_idx]["key"], text_chunk)
+                        
+                        with status_lock:
+                            local_manager[current_key_idx]["in_use"] = False
+                            if "ERR:" not in res:
+                                display_status[task_idx] = {"status": "done", "msg": "✅ Hoàn tất!"}
+                                return task_idx, res
+                            else:
+                                # LỖI 1 LẦN -> KHAI TỬ LUÔN
+                                local_manager[current_key_idx]["status"] = "DEAD"
+                                display_status[task_idx] = {"status": "wait", "msg": f"❌ Key #{current_key_idx+1} HỎNG!"}
+                                time.sleep(2)
+                                current_key_idx = None # Quay lại tìm người tiếp theo
 
                 with ThreadPoolExecutor(max_workers=5) as executor:
-                    futures = []
-                    for j in range(num_actual_tasks):
-                        futures.append(executor.submit(worker, j, "\n\n".join(wave_batches[j])))
+                    futures = [executor.submit(worker, j, "\n\n".join(wave_batches[j]), manager) for j in range(num_actual_tasks)]
                     
                     while True:
+                        render_realtime_keys()
                         done_count = 0
                         cols = monitor_container.columns(5)
                         for j in range(5):
                             s = display_status[j]
-                            style = f"status-{s['status']}"
-                            cols[j].markdown(f"<div class='worker-box {style}'>🔮 <b>Vị trí {j+1}</b><br>{s['msg']}</div>", unsafe_allow_html=True)
-                            if s['status'] == "done" or s['status'] == "idle":
-                                done_count += 1
+                            cols[j].markdown(f"<div class='worker-box status-{s['status']}'>🔮 <b>Vị trí {j+1}</b><br>{s['msg']}</div>", unsafe_allow_html=True)
+                            if s['status'] in ["done", "idle"]: done_count += 1
+                        
+                        # KIỂM TRA LỆNH NGẮT TỪ WORKER
+                        if any(f.done() and f.result() == "FATAL_ERROR" for f in futures):
+                            st.error("🛑 CẢNH BÁO TỐI CAO: Tất cả 5 linh thạch đã cạn kiệt năng lượng hoặc bị Google phong ấn. Trận pháp buộc phải dừng lại để bảo toàn requests!")
+                            st.warning("Lời khuyên: Đại hiệp hãy thay 5 Key mới (Gmail mới) và khởi động lại.")
+                            st.stop() # DỪNG TOÀN BỘ APP TẠI ĐÂY
+
                         if done_count == 5: break
                         time.sleep(0.5)
                     
@@ -176,14 +203,18 @@ if file:
                         t_idx, res = future.result()
                         final_results_map[wave_idx * 5 + t_idx] = res
 
-                progress_bar.progress((wave_idx + 1) / total_waves)
-                if wave_idx < total_waves - 1:
-                    countdown_timer(20, timer_box)
+                progress_bar.progress((wave_idx + 1) / len(waves))
+                if wave_idx < len(waves) - 1:
+                    for i in range(20, 0, -1):
+                        render_realtime_keys()
+                        timer_box.markdown(f"<div class='countdown-box'>⏳ Nghỉ dưỡng sức đợt {wave_idx+1}. Còn {i} giây...</div>", unsafe_allow_html=True)
+                        time.sleep(1)
+                    timer_box.empty()
 
-            ordered = [final_results_map[i] for i in range(len(batches))]
-            st.download_button("📥 TẢI FILE DỊCH", "\n\n".join(ordered), file_name=f"V43_ThayKey_{file.name}")
+            ordered = [final_results_map[i] for i in range(len(batches)) if i in final_results_map]
+            st.download_button("📥 TẢI PHỤ ĐỀ V52", "\n\n".join(ordered), file_name=f"V52_Final_{file.name}")
             st.balloons()
+            render_realtime_keys()
 
         except Exception as e:
             st.error(f"Sụp đổ: {e}")
-            st.code(traceback.format_exc())
