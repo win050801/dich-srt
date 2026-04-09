@@ -1,6 +1,6 @@
 import sys
 # =========================================================
-# BỨC TƯỜNG BẢO VỆ UTF-8 (CHỐNG LỖI FONT TIẾNG VIỆT)
+# BỨC TƯỜNG BẢO VỆ UTF-8
 # =========================================================
 if sys.stdout.encoding.lower() != 'utf-8':
     sys.stdout.reconfigure(encoding='utf-8')
@@ -21,182 +21,169 @@ from concurrent.futures import ThreadPoolExecutor
 LIST_API_KEYS = [
     "AIzaSyCTpvM7EmyXiJ93PKMHDNDK_rDiR33pdHI",
     "AIzaSyDa3R-P4ZoTEJqKGhAolR0gKoR29fS9fjw",
-    "AIzaSyBl_1hempgYfUPK36VMclsLLyX76zFAeQo",
+    "AIzaSyBADzpSc2Gv7q6ZroUVBcefVhONbVpGUJo",
     "AIzaSyCopyWAn_dGN-QU1C9NWwiiI4NpsNkZq0I",
     "AIzaSyALXMyBw1Noob3CJCHRar67KyEA51mv9zk"
 ]
 # =========================================================
 
-st.set_page_config(page_title="Donghua Ngũ Hành v42", page_icon="☯️", layout="wide")
+st.set_page_config(page_title="Donghua Đại Phách v43", page_icon="⚔️", layout="wide")
 
 st.markdown("""
     <style>
     .stApp { background-color: #0b0d11; color: #e0e0e0; }
-    .stButton>button { 
-        background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); 
-        color: white; border: none; font-weight: bold; border-radius: 12px; height: 3.5em; width: 100%;
-    }
-    .wave-box { 
-        padding: 15px; background: #1e293b; border-left: 5px solid #3b82f6; 
-        border-radius: 8px; margin-bottom: 15px; font-size: 1.1em;
-    }
-    .worker-box {
-        padding: 10px; border-radius: 8px; text-align: center; font-size: 0.9em; box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-    }
+    .wave-box { padding: 15px; background: #1e293b; border-left: 5px solid #3b82f6; border-radius: 8px; margin-bottom: 15px; }
+    .worker-box { padding: 12px; border-radius: 8px; text-align: center; font-size: 0.85em; min-height: 100px; margin-bottom: 10px; }
     .status-running { background: #1e3a8a; border: 1px solid #3b82f6; color: #93c5fd; }
     .status-done { background: #064e3b; border: 1px solid #10b981; color: #6ee7b7; }
-    .status-error { background: #7f1d1d; border: 1px solid #ef4444; color: #fca5a5; }
-    .countdown-box {
-        padding: 15px; background: #1f2937; border: 1px dashed #fbbf24;
-        border-radius: 8px; color: #fcd34d; text-align: center; font-weight: bold; margin: 20px 0;
-    }
-    h1 { color: #60a5fa !important; text-align: center; text-shadow: 1px 1px 2px #000; }
+    .status-idle { background: #334155; border: 1px dashed #64748b; color: #94a3b8; opacity: 0.5; }
+    .status-warning { background: #78350f; border: 1px solid #f59e0b; color: #fcd34d; }
+    .status-dead { background: #450a0a; border: 1px solid #ef4444; color: #fca5a5; font-weight: bold; }
+    .countdown-box { padding: 15px; background: #1f2937; border: 1px dashed #fbbf24; border-radius: 8px; color: #fcd34d; text-align: center; margin: 20px 0; }
+    h1 { color: #60a5fa !important; text-align: center; }
     </style>
     """, unsafe_allow_html=True)
 
-st.markdown("<h1>☯️ DONGHUA STUDIO - NGŨ HÀNH TRẬN (V42)</h1>", unsafe_allow_html=True)
+st.markdown("<h1>⚔️ ĐẠI PHÁCH KỲ MÔN - THAY KEY (V43)</h1>", unsafe_allow_html=True)
 
-# --- HÀM GỌI API GEMINI ---
 def call_gemini(api_key, text_data):
     try:
         client = genai.Client(api_key=api_key)
-        sys_prompt = "Bạn là đại sư dịch thuật Donghua chuyên nghiệp. Dịch SRT sang tiếng Việt võ hiệp (Ta, Ngươi...). Giữ nguyên timestamps. CHỈ trả về nội dung tiếng việt giữ nguyên định dạng SRT."
+        sys_prompt = (
+        "Bạn là một đại sư dịch thuật phim cổ trang Trung Quốc. "
+        "Hãy dịch các đoạn SRT sau sang tiếng Việt phong cách VÕ HIỆP/TIÊN HIỆP.\n\n"
+        "QUY TẮC:\n"
+        "- Xưng hô: Ta, Ngươi, Huynh, Đệ, Muội, Lão phu, Tiểu tử, Bổn tọa, Tiền bối, Vãn bối...\n"
+        "- Văn phong: Hào sảng, trau chuốt, dễ đọc cho Voice-over.\n"
+        "- Kỹ thuật: GIỮ NGUYÊN timestamps. KHÔNG gộp/tách đoạn.\n"
+        "- Chỉ trả về nội dung SRT."
+    )
         response = client.models.generate_content(
             model="gemini-3.1-flash-lite-preview", 
             contents=f"{sys_prompt}\n\nNỘI DUNG SRT:\n{text_data}",
             config=types.GenerateContentConfig(temperature=0.2)
         )
-        if response.text:
-            return response.text.strip()
-        else:
-            return "GOOGLE_ERROR: Phản hồi rỗng."
+        return response.text.strip() if response.text else "EMPTY"
     except Exception as e:
-        return f"GOOGLE_ERROR: {str(e)}"
+        return f"ERR: {str(e)}"
 
-# --- HÀM ĐẾM NGƯỢC ---
 def countdown_timer(seconds, placeholder):
     for i in range(seconds, 0, -1):
-        placeholder.markdown(
-            f"<div class='countdown-box'>⏳ Đã thu công! Hệ thống đang tản nhiệt... Chờ {i} giây để xuất chiêu đợt tiếp theo.</div>", 
-            unsafe_allow_html=True
-        )
+        placeholder.markdown(f"<div class='countdown-box'>⏳ Thu hồi công lực: {i} giây...</div>", unsafe_allow_html=True)
         time.sleep(1)
     placeholder.empty()
 
-# --- XỬ LÝ CHÍNH ---
 file = st.file_uploader("Tải file .srt lên", type=["srt"])
 valid_keys = [k.strip() for k in LIST_API_KEYS if "..." not in k and k.strip()]
 
 if file:
-    if len(valid_keys) != 5:
-        st.error("❌ Đại hiệp phải điền ĐỦ 5 API Key vào mảng LIST_API_KEYS để kích hoạt Ngũ Hành Trận!")
-    elif st.button("KÍCH HOẠT NGŨ HÀNH LIÊN HOÀN ⚔️"):
+    if len(valid_keys) < 5:
+        st.error("❌ Đại hiệp hãy điền đủ 5 Key vào mã nguồn!")
+    elif st.button("KHỞI ĐỘNG ĐẠI PHÁCH TRẬN ⚔️"):
         try:
             start_time = time.time()
-            
-            # Xử lý file
             raw_content = file.getvalue().decode("utf-8-sig", errors="replace").replace('\r\n', '\n').strip()
             blocks = [b.strip() for b in re.split(r'\n\s*\n', raw_content) if b.strip()]
             
-            # 1. Cắt lô 40 đoạn
             batch_size = 40
             batches = [blocks[i:i + batch_size] for i in range(0, len(blocks), batch_size)]
-            
-            # 2. Nhóm 5 lô thành 1 "Đợt Sóng" (Wave)
             waves = [batches[i:i + 5] for i in range(0, len(batches), 5)]
             total_waves = len(waves)
             
             final_results_map = {}
-            
             progress_bar = st.progress(0.0)
             wave_info = st.empty()
             monitor_container = st.empty()
             timer_box = st.empty()
-            
-            # --- VÒNG LẶP THEO ĐỢT SÓNG ---
+
             for wave_idx, wave_batches in enumerate(waves):
-                num_tasks = len(wave_batches)
+                num_actual_tasks = len(wave_batches)
+                # display_status: lưu thông tin hiển thị của 5 slot Key
+                display_status = {j: {"status": "idle", "msg": "Đang nghỉ", "key_idx": j} for j in range(5)}
                 
-                wave_info.markdown(
-                    f"<div class='wave-box'>🌊 <b>ĐANG ĐÁNH ĐỢT SÓNG {wave_idx + 1}/{total_waves}</b><br>"
-                    f"Sử dụng {num_tasks} Key cùng lúc để dịch {num_tasks} đoạn...</div>", 
-                    unsafe_allow_html=True
-                )
-                
-                # Biến lưu trạng thái của 5 Key trong đợt này
-                shared_status = {j: {"status": "running", "msg": "Đang vận công..."} for j in range(num_tasks)}
-                wave_results = {}
-                
-                # Hàm cho mỗi Key (Luồng phụ)
-                def worker(j_idx, text_chunk):
-                    key = valid_keys[j_idx] # Key số j dịch đoạn số j
-                    attempt = 0
+                wave_info.markdown(f"<div class='wave-box'>🌊 <b>ĐỢT SÓNG {wave_idx+1}/{total_waves}</b><br>Đang điều động linh thạch ứng biến...</div>", unsafe_allow_html=True)
+
+                def worker(task_idx, text_chunk):
+                    """
+                    task_idx: index của đoạn trong đợt sóng (0-4)
+                    text_chunk: nội dung cần dịch
+                    """
+                    # Bắt đầu với Key tương ứng slot
+                    current_key_idx = task_idx 
+                    total_errors_this_task = 0
+                    
                     while True:
-                        shared_status[j_idx] = {"status": "running", "msg": f"Đang dịch..."}
-                        res = call_gemini(key, text_chunk)
+                        key_to_use = valid_keys[current_key_idx]
+                        display_status[task_idx] = {
+                            "status": "running", 
+                            "msg": f"Key #{current_key_idx+1}<br>Đang dịch...",
+                            "key_idx": current_key_idx
+                        }
                         
-                        if "GOOGLE_ERROR:" not in res and len(res) > 5:
-                            shared_status[j_idx] = {"status": "done", "msg": "✅ Xong!"}
-                            return j_idx, res
+                        # Gửi lệnh dịch
+                        res = call_gemini(key_to_use, text_chunk)
+                        
+                        if "ERR:" not in res:
+                            display_status[task_idx] = {
+                                "status": "done", 
+                                "msg": f"✅ Xong!<br>(Bởi Key #{current_key_idx+1})",
+                                "key_idx": current_key_idx
+                            }
+                            return task_idx, res
                         else:
-                            attempt += 1
-                            error_short = res.replace('GOOGLE_ERROR:', '').strip()[:25] + "..."
-                            shared_status[j_idx] = {"status": "error", "msg": f"⚠️ Lỗi!<br>Thử lại Lần {attempt}"}
-                            time.sleep(5) # Nghỉ 5s nếu lỗi rồi dịch lại
-                
-                # Kích hoạt 5 luồng chạy song song
-                with ThreadPoolExecutor(max_workers=num_tasks) as executor:
-                    futures = [executor.submit(worker, j, "\n\n".join(wave_batches[j])) for j in range(num_tasks)]
+                            total_errors_this_task += 1
+                            
+                            # Nếu lỗi quá 5 lần trên Key hiện tại -> THAY KEY
+                            if total_errors_this_task >= 5:
+                                display_status[task_idx] = {
+                                    "status": "dead", 
+                                    "msg": f"❌ Key #{current_key_idx+1} KIỆT SỨC!<br>Đang thay người...",
+                                    "key_idx": current_key_idx
+                                }
+                                time.sleep(2)
+                                
+                                # Tìm Key tiếp theo (xoay vòng)
+                                current_key_idx = (current_key_idx + 1) % 5
+                                total_errors_this_task = 0 # Reset đếm lỗi cho Key mới
+                                continue 
+                            
+                            # Nếu chưa quá 5 lần -> Thử lại chính Key đó
+                            display_status[task_idx] = {
+                                "status": "warning", 
+                                "msg": f"⚠️ Key #{current_key_idx+1} NGHẼN<br>Thử lại lần {total_errors_this_task}",
+                                "key_idx": current_key_idx
+                            }
+                            time.sleep(5)
+
+                with ThreadPoolExecutor(max_workers=5) as executor:
+                    futures = []
+                    for j in range(num_actual_tasks):
+                        futures.append(executor.submit(worker, j, "\n\n".join(wave_batches[j])))
                     
-                    # Luồng chính vẽ giao diện cập nhật liên tục (Chống lỗi SessionContext)
                     while True:
-                        all_done = True
-                        
-                        # Vẽ 5 cột
+                        done_count = 0
                         cols = monitor_container.columns(5)
-                        for j in range(num_tasks):
-                            status_data = shared_status[j]
-                            style = "status-done" if status_data["status"] == "done" else ("status-error" if status_data["status"] == "error" else "status-running")
-                            
-                            cols[j].markdown(
-                                f"<div class='worker-box {style}'>🔮 <b>Key #{j+1}</b><br>{status_data['msg']}</div>", 
-                                unsafe_allow_html=True
-                            )
-                            
-                            if status_data["status"] != "done":
-                                all_done = False
-                        
-                        if all_done:
-                            break
-                        time.sleep(0.5) # Quét UI mỗi nửa giây
+                        for j in range(5):
+                            s = display_status[j]
+                            style = f"status-{s['status']}"
+                            cols[j].markdown(f"<div class='worker-box {style}'>🔮 <b>Vị trí {j+1}</b><br>{s['msg']}</div>", unsafe_allow_html=True)
+                            if s['status'] == "done" or s['status'] == "idle":
+                                done_count += 1
+                        if done_count == 5: break
+                        time.sleep(0.5)
                     
-                    # Lấy kết quả khi tất cả đã xong
                     for future in futures:
-                        j_idx, res = future.result()
-                        global_batch_idx = wave_idx * 5 + j_idx
-                        final_results_map[global_batch_idx] = res
-                
-                # Cập nhật thanh tiến độ
+                        t_idx, res = future.result()
+                        final_results_map[wave_idx * 5 + t_idx] = res
+
                 progress_bar.progress((wave_idx + 1) / total_waves)
-                
-                # NGHỈ 20 GIÂY NẾU CHƯA PHẢI ĐỢT CUỐI
                 if wave_idx < total_waves - 1:
                     countdown_timer(20, timer_box)
-            
-            # --- HOÀN TẤT VÀ LẮP RÁP FILE ---
-            ordered_results = [final_results_map[i] for i in range(len(batches))]
-            final_srt = "\n\n".join(ordered_results)
-            duration = int(time.time() - start_time)
-            
-            wave_info.markdown(
-                f"<div class='wave-box' style='border-left-color: #10b981; background: #064e3b; color: white;'>"
-                f"✨ <b>VIÊN MÃN HOÀN TOÀN!</b><br>Đã dịch xong toàn bộ file trong {duration} giây.</div>", 
-                unsafe_allow_html=True
-            )
-            monitor_container.empty()
+
+            ordered = [final_results_map[i] for i in range(len(batches))]
+            st.download_button("📥 TẢI FILE DỊCH", "\n\n".join(ordered), file_name=f"V43_ThayKey_{file.name}")
             st.balloons()
-            st.download_button("📥 TẢI FILE DỊCH VỀ", final_srt, file_name=f"V42_NguHanh_{file.name}")
 
         except Exception as e:
-            st.error(f"💥 PHÁP TRẬN SỤP ĐỔ: {e}")
-            st.code(traceback.format_exc(), language="python")
+            st.error(f"Sụp đổ: {e}")
+            st.code(traceback.format_exc())
