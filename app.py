@@ -73,13 +73,13 @@ def call_gemini(api_key, text_data, expected_count):
             "HARM_CATEGORY_SEXUALLY_EXPLICIT", "HARM_CATEGORY_DANGEROUS_CONTENT"
         ]]
        sys_prompt = (
-            f"Bạn là một dịch giả võ hiệp cổ trang chuyên nghiệp.\n"
-            f"NHIỆM VỤ: Dịch SRT sang tiếng Việt.\n"
-            f"YÊU CẦU BẮT BUỘC:\n"
-            f"1. Phải có đủ {expected_count} đoạn dịch (mỗi đoạn bắt đầu bằng số và mốc thời gian).\n"
-            f"2. TUYỆT ĐỐI KHÔNG TRẢ VỀ CHỮ TRUNG QUỐC. Nếu không dịch được, hãy bỏ qua chữ đó nhưng phải giữ tiếng Việt.\n"
-            f"3. Giữ nguyên timestamps chuẩn xác."
-        )
+        "Bạn là đại sư dịch thuật Donghua chuyên nghiệp. "
+        "Dịch các đoạn SRT sau sang tiếng Việt phong cách VÕ HIỆP, CỔ TRANG.\n"
+        "XƯNG HÔ: Ta, Ngươi, Lão phu, Tiểu tử, Bổn tọa, Tiền bối, Huynh, Đệ, Muội...\n"
+        "VĂN PHONG: Hào sảng, trau chuốt, tự nhiên cho thuyết minh. GIỮ NGUYÊN timestamps.\n"
+        "Phải có đủ {expected_count} đoạn dịch (mỗi đoạn bắt đầu bằng số và mốc thời gian).\n"
+        "QUY TẮC: KHÔNG gộp/tách đoạn. Chỉ trả về nội dung SRT."
+    )
         response = client.models.generate_content(
             model="gemini-3.1-flash-lite-preview", 
             contents=f"{sys_prompt}\n\n{text_data}",
