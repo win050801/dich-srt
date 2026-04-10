@@ -75,7 +75,7 @@ def call_gemini(api_key, text_data):
             "Số lượng đoạn kết quả phải bằng chính xác số lượng đoạn đầu vào. Giữ nguyên timestamps.Chỉ dịch nội dung không tự ý thêm bất cứ gì"
         )
         response = client.models.generate_content(
-            model="gemini-3.1-flash-lite-preview", 
+            model="gemini-3.1-pro-preview", 
             contents=f"{sys_prompt}\n\nNỘI DUNG CẦN DỊCH:\n{text_data}",
             config=types.GenerateContentConfig(temperature=0.2)
         )
