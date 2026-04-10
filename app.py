@@ -19,27 +19,22 @@ except:
 # =========================================================
 # GIAO DIỆN LÔI ĐÌNH (DARK MODE - REALTIME)
 # =========================================================
-st.set_page_config(page_title="Donghua v69 - Lôi Đình Phục Ma", page_icon="⚡", layout="wide")
+st.set_page_config(page_title="Donghua v69.1 - Lôi Đình", page_icon="⚡", layout="wide")
 
 st.markdown("""
     <style>
     .stApp { background-color: #0d1117; color: #c9d1d9; }
     [data-testid="stSidebar"] { background-color: #161b22 !important; border-right: 1px solid #30363d; }
-    
-    /* Ô Linh Thạch */
     .key-box { padding: 8px; border-radius: 6px; text-align: center; border: 1px solid #30363d; font-size: 0.75rem; margin-bottom: 5px; min-height: 60px; }
     .k-active { background: #238636; color: #aff5b4; border-color: #2ea043; }
     .k-busy { background: #1f6feb; color: #c2e0ff; border-color: #388bfd; }
     .k-cool { background: #9e6a03; color: #ffdf5d; border-color: #d29922; }
     .k-dead { background: #da3633; color: #ffd1d1; border-color: #f85149; }
-    
-    /* Ô Workers */
     .w-box { padding: 8px; border-radius: 4px; border: 1px solid #30363d; font-size: 0.75rem; text-align: center; background: #010409; margin-bottom: 5px; }
-    .w-run { color: #58a6ff; border: 1px solid #58a6ff; box-shadow: 0 0 5px #58a6ff33; }
+    .w-run { color: #58a6ff; border: 1px solid #58a6ff; }
     .w-retry { color: #d29922; border: 1px dashed #d29922; }
     .w-done { color: #3fb950; border: 1px solid #3fb950; }
     .w-idle { color: #8b949e; border: 1px dotted #8b949e; }
-    
     h4 { margin-bottom: 5px !important; color: #58a6ff !important; }
     </style>
     """, unsafe_allow_html=True)
@@ -77,16 +72,9 @@ def call_gemini(api_key, text_data, expected_count):
             "HARM_CATEGORY_HARASSMENT", "HARM_CATEGORY_HATE_SPEECH", 
             "HARM_CATEGORY_SEXUALLY_EXPLICIT", "HARM_CATEGORY_DANGEROUS_CONTENT"
         ]]
-        sys_prompt = (
-            f"Bạn là một dịch giả võ hiệp cổ trang chuyên nghiệp.\n"
-            f"NHIỆM VỤ: Dịch SRT sang tiếng Việt.\n"
-            f"YÊU CẦU BẮT BUỘC:\n"
-            f"1. Phải có đủ {expected_count} đoạn dịch (mỗi đoạn bắt đầu bằng số và mốc thời gian).\n"
-            f"2. TUYỆT ĐỐI KHÔNG TRẢ VỀ CHỮ TRUNG QUỐC. Nếu không dịch được, hãy bỏ qua chữ đó nhưng phải giữ tiếng Việt.\n"
-            f"3. Giữ nguyên timestamps chuẩn xác."
-        )
+        sys_prompt = f"Dịch SRT Trung -> Việt võ hiệp chuẩn xác {expected_count} đoạn. Cấm chữ Trung Quốc. Giữ timestamps."
         response = client.models.generate_content(
-            model="gemini-3.1-flash-lite-preview", 
+            model="gemini-2.0-flash", 
             contents=f"{sys_prompt}\n\n{text_data}",
             config=types.GenerateContentConfig(temperature=0.15, safety_settings=safety)
         )
@@ -95,20 +83,17 @@ def call_gemini(api_key, text_data, expected_count):
         return f"ERR_SYS: {str(e)}"
 
 # =========================================================
-# SIDEBAR CẤU HÌNH
+# SIDEBAR
 # =========================================================
 with st.sidebar:
-    st.title("⚡ LÔI ĐÌNH v69")
+    st.title("⚡ LÔI ĐÌNH v69.1")
     file = st.file_uploader("📜 Nạp bí tịch (.srt)", type=["srt"])
     b_size = st.number_input("Số đoạn/Lô", 10, 100, 50)
     c_time = st.number_input("Giây nghỉ/Key", 5, 60, 15)
     st.divider()
-    num_workers = st.slider("Số luồng dịch (Workers)", 1, 10, 5)
+    num_workers = st.slider("Số luồng (Workers)", 1, 10, 5)
     start_btn = st.button("⚔️ KÍCH HOẠT TRẬN PHÁP", use_container_width=True, type="primary")
 
-# =========================================================
-# KHU VỰC HIỂN THỊ TRẠNG THÁI (DASHBOARD)
-# =========================================================
 col_keys, col_workers = st.columns([1, 2.5])
 
 with col_keys:
@@ -123,9 +108,7 @@ with col_workers:
     p_text = st.empty()
 
 def refresh_dashboard(worker_status_map):
-    """Cập nhật toàn bộ giao diện trong 1 lần quét"""
     now = datetime.now()
-    # 1. Cập nhật Key Status
     for i in range(len(VALID_KEYS)):
         k = manager[i]
         diff = (now - k["last_finished"]).total_seconds()
@@ -135,13 +118,12 @@ def refresh_dashboard(worker_status_map):
         else: cls, txt = "k-active", "✅ SẴN SÀNG"
         k_places[i].markdown(f"<div class='key-box {cls}'><b>#{i+1}</b><br>{txt}</div>", unsafe_allow_html=True)
     
-    # 2. Cập nhật Worker Status
     for i in range(num_workers):
         info = worker_status_map.get(i, {"msg": "Đang chờ...", "style": "w-idle"})
         w_places[i].markdown(f"<div class='w-box {info['style']}'><b>Worker {i+1}</b>: {info['msg']}</div>", unsafe_allow_html=True)
 
 # =========================================================
-# LÕI XỬ LÝ (QUEUE LƯU THỦY)
+# LÕI XỬ LÝ
 # =========================================================
 if start_btn and file:
     try:
@@ -152,10 +134,10 @@ if start_btn and file:
         
         results = {}
         worker_status_map = {i: {"msg": "Sẵn sàng", "style": "w-idle"} for i in range(num_workers)}
-        completed_count = 0
+        # Dùng linh hộp (dict) để thay thế cho nonlocal
+        stats = {"completed": 0}
 
         def worker_logic(batch_idx, worker_id):
-            nonlocal completed_count
             chunk_blocks = batches[batch_idx]
             expected = len(chunk_blocks)
             chunk_text = "\n\n".join(chunk_blocks)
@@ -164,7 +146,6 @@ if start_btn and file:
             while True:
                 attempt += 1
                 cur_k = None
-                # Tìm Key thỏa mãn: Không bận + Đã nghỉ đủ c_time
                 with status_lock:
                     for i in range(len(VALID_KEYS)):
                         k = manager[i]
@@ -176,41 +157,38 @@ if start_btn and file:
                     with worker_status_lock: worker_status_map[worker_id] = {"msg": f"Lô {batch_idx+1}: Chờ Key...", "style": "w-retry"}
                     time.sleep(1.5); continue
 
-                # Triển khai dịch
                 with worker_status_lock: worker_status_map[worker_id] = {"msg": f"Lô {batch_idx+1}: Key {cur_k+1} vận công", "style": "w-run"}
                 res = call_gemini(manager[cur_k]["key"], chunk_text, expected)
                 
                 with status_lock:
-                    manager[cur_k]["last_finished"] = datetime.now() # Bắt đầu tính 15s nghỉ từ đây
+                    manager[cur_k]["last_finished"] = datetime.now()
                     manager[cur_k]["in_use"] = False
                     
                     if check_clean_output(res, expected):
                         results[batch_idx] = res
-                        completed_count += 1
+                        stats["completed"] += 1 # Cập nhật linh hộp
                         with worker_status_lock: worker_status_map[worker_id] = {"msg": f"Lô {batch_idx+1}: ✅ Xong", "style": "w-done"}
                         return "SUCCESS"
                     else:
                         if "429" in res or "401" in res: manager[cur_k]["status"] = "DEAD"
-                        with worker_status_lock: worker_status_map[worker_id] = {"msg": f"Lô {batch_idx+1}: 🔄 Lỗi, thử lại {attempt}", "style": "w-retry"}
+                        with worker_status_lock: worker_status_map[worker_id] = {"msg": f"Lô {batch_idx+1}: 🔄 Thử lại {attempt}", "style": "w-retry"}
                         time.sleep(1); cur_k = None
 
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
-            # Gửi tất cả nhiệm vụ vào hàng đợi
             futures = {executor.submit(worker_logic, i, i % num_workers): i for i in range(total_batches)}
             
-            while completed_count < total_batches:
+            while stats["completed"] < total_batches:
                 refresh_dashboard(worker_status_map)
-                p_bar.progress(completed_count / total_batches)
-                p_text.info(f"Tiến độ luyện công: {completed_count}/{total_batches} lô.")
+                p_bar.progress(stats["completed"] / total_batches)
+                p_text.info(f"Tiến độ luyện công: {stats['completed']}/{total_batches} lô.")
                 
                 if any(f.done() and f.result() == "FATAL" for f in futures.keys()):
                     st.error("🛑 Trận pháp tan vỡ! Tất cả Key đã cạn kiệt linh lực."); st.stop()
                 time.sleep(0.5)
 
-        # Hợp nhất bí tịch
         final_srt = "\n\n".join([results[i] for i in range(total_batches)])
-        st.success("🎉 Lôi Đình Phục Ma thành công! Bí tịch đã sạch bóng tiếng Trung.")
-        st.download_button("📥 TẢI BẢN DỊCH HOÀN MỸ", final_srt, file_name=f"V69_Lightning_{file.name}", use_container_width=True)
+        st.success("🎉 Thành công! Bí tịch đã hoàn mỹ.")
+        st.download_button("📥 TẢI BẢN DỊCH", final_srt, file_name=f"V69_Lightning_{file.name}", use_container_width=True)
         st.balloons()
 
     except Exception as e:
