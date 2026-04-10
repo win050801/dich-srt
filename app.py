@@ -89,7 +89,7 @@ def call_gemini(api_key, text_data, expected_count):
         )
         
         response = client.models.generate_content(
-            model="gemini-3.1-pro-preview", 
+            model="gemini-3.1-flash-lite-preview", 
             contents=f"{sys_prompt}\n\nNỘI DUNG:\n{text_data}",
             config=types.GenerateContentConfig(temperature=0.15, safety_settings=safety)
         )
