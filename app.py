@@ -76,7 +76,13 @@ status_lock = threading.Lock()
 def call_gemini(api_key, text_data):
     try:
         client = genai.Client(api_key=api_key)
-        sys_prompt = "Dịch SRT sang tiếng Việt võ hiệp chuyên nghiệp. Giữ timestamps."
+        sys_prompt = (
+        "Bạn là đại sư dịch thuật Donghua chuyên nghiệp. "
+        "Dịch các đoạn SRT sau sang tiếng Việt phong cách VÕ HIỆP, CỔ TRANG.\n"
+        "XƯNG HÔ: Ta, Ngươi, Lão phu, Tiểu tử, Bổn tọa, Tiền bối, Huynh, Đệ, Muội...\n"
+        "VĂN PHONG: Hào sảng, trau chuốt, tự nhiên cho thuyết minh. GIỮ NGUYÊN timestamps.\n"
+        "QUY TẮC: KHÔNG gộp/tách đoạn. Chỉ trả về nội dung SRT."
+        )
         response = client.models.generate_content(
             model="gemini-3.1-flash-lite-preview", 
             contents=f"{sys_prompt}\n\n{text_data}",
