@@ -19,27 +19,20 @@ except ImportError:
 # =========================================================
 # GIAO DIỆN TỐI GIẢN (ZEN STYLE)
 # =========================================================
-st.set_page_config(page_title="Donghua Truy Nguyên v62", page_icon="🔍", layout="wide")
+st.set_page_config(page_title="Donghua Phục Ma v63", page_icon="⚔️", layout="wide")
 
 st.markdown("""
     <style>
     .stApp { background-color: #0f172a; color: #cbd5e1; }
     [data-testid="stSidebar"] { background-color: #1e293b !important; border-right: 1px solid #334155; }
-    .key-box {
-        padding: 6px; border-radius: 6px; text-align: center;
-        border: 1px solid #334155; font-size: 0.75rem; margin-bottom: 5px;
-    }
+    .key-box { padding: 6px; border-radius: 6px; text-align: center; border: 1px solid #334155; font-size: 0.75rem; margin-bottom: 5px; }
     .k-active { background: #064e3b; color: #4ade80; border-color: #22c55e; }
     .k-busy { background: #1e3a8a; color: #60a5fa; border-color: #3b82f6; }
     .k-cool { background: #451a03; color: #fbbf24; border-color: #d97706; }
     .k-dead { background: #450a0a; color: #f87171; border-color: #ef4444; }
-    .w-box {
-        padding: 5px; border-radius: 4px; border: 1px solid #334155;
-        font-size: 0.75rem; text-align: center; background: #1e293b;
-    }
+    .w-box { padding: 5px; border-radius: 4px; border: 1px solid #334155; font-size: 0.75rem; text-align: center; background: #1e293b; }
     .w-run { color: #60a5fa; border-color: #3b82f6; }
     .w-done { color: #4ade80; border-color: #22c55e; }
-    h2, h3 { color: #38bdf8 !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -65,49 +58,69 @@ if 'key_manager' not in st.session_state:
 manager = st.session_state.key_manager
 status_lock = threading.Lock()
 
-def call_gemini(api_key, text_data):
+def contains_chinese(text):
+    """Kiểm tra xem văn bản còn chứa chữ Trung Quốc không"""
+    return bool(re.search(r'[\u4e00-\u9fff]', text))
+
+def call_gemini(api_key, text_data, expected_count):
     try:
         client = genai.Client(api_key=api_key)
-        # CẬP NHẬT KHẨU QUYẾT: NGHIÊM CẤM THIẾU ĐOẠN
+        
+        # HÓA GIẢI BỘ LỘC AN TOÀN (GIẢM LỖI 400)
+        safety = [
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+        ]
+        
         sys_prompt = (
-            "Dịch SRT sang tiếng Việt võ hiệp chuyên nghiệp. "
-            "QUAN TRỌNG: Dịch đầy đủ TẤT CẢ các đoạn. KHÔNG ĐƯỢC bỏ sót bất kỳ số thứ tự nào. "
-            "Số lượng đoạn kết quả phải bằng chính xác số lượng đoạn đầu vào. Giữ nguyên timestamps.Chỉ dịch nội dung không tự ý thêm bất cứ gì"
+            f"Dịch SRT sang tiếng Việt võ hiệp chuyên nghiệp. "
+            f"BẮT BUỘC: Dịch đủ {expected_count} đoạn. Tuyệt đối KHÔNG trả về chữ Trung Quốc. "
+            f"Giữ nguyên timestamps và số thứ tự.Không tự ý thêm bất cứ gì khác"
         )
+        
         response = client.models.generate_content(
             model="gemini-3.1-pro-preview", 
-            contents=f"{sys_prompt}\n\nNỘI DUNG CẦN DỊCH:\n{text_data}",
-            config=types.GenerateContentConfig(temperature=0.2)
+            contents=f"{sys_prompt}\n\nNỘI DUNG:\n{text_data}",
+            config=types.GenerateContentConfig(temperature=0.2, safety_settings=safety)
         )
-        return response.text.strip() if response.text else "EMPTY"
+        
+        res_text = response.text.strip() if response.text else ""
+        
+        # KIỂM TRA CHẤT LƯỢNG ĐẦU RA
+        if not res_text: return "ERR: Rỗng"
+        if contains_chinese(res_text): return "ERR: Còn chữ Trung"
+        
+        # Đếm số đoạn trả về (dựa trên số thứ tự srt hoặc timestamps)
+        res_blocks = [b for b in re.split(r'\n\s*\n', res_text) if b.strip()]
+        if len(res_blocks) < expected_count * 0.8: # Cho phép sai số nhỏ nếu ghép block lỗi
+             return f"ERR: Thiếu đoạn ({len(res_blocks)}/{expected_count})"
+             
+        return res_text
     except Exception as e:
         return f"ERR: {str(e)}"
 
 # =========================================================
-# SIDEBAR
+# GIAO DIỆN & SIDEBAR
 # =========================================================
 with st.sidebar:
-    st.title("🔍 TRUY NGUYÊN")
+    st.title("⚔️ PHỤC MA v63")
     file = st.file_uploader("📜 Nạp file .srt", type=["srt"])
     b_size = st.number_input("Số đoạn/Key", 10, 150, 70)
     c_time = st.number_input("Giây nghỉ/Key", 0, 120, 15)
     start = st.button("⚔️ KHỞI CHẠY", use_container_width=True, type="primary")
 
-# =========================================================
-# GIAO DIỆN CHÍNH
-# =========================================================
 col_k, col_w = st.columns([1, 2])
-
 with col_k:
     st.caption("📡 Trạng thái Key")
     k_placeholders = [st.empty() for _ in range(len(VALID_KEYS))]
 
 with col_w:
-    st.caption("🌊 Tiến trình (Workers)")
+    st.caption("🌊 Luồng xử lý (Workers)")
     w_cols = st.columns(5)
     w_placeholders = [w_cols[i].empty() for i in range(5)]
     st.divider()
-    progress_info = st.empty()
     p_bar = st.progress(0)
 
 def refresh_ui():
@@ -124,7 +137,7 @@ def refresh_ui():
 refresh_ui()
 
 # =========================================================
-# LÕI XỬ LÝ - TRUY NGUYÊN
+# LÕI XỬ LÝ
 # =========================================================
 if start and file:
     try:
@@ -138,7 +151,10 @@ if start and file:
             num_tasks = len(wave_batches)
             w_status = {j: "Chờ..." for j in range(5)}
 
-            def worker(t_idx, chunk):
+            def worker(t_idx, chunk_blocks):
+                expected = len(chunk_blocks)
+                chunk_text = "\n\n".join(chunk_blocks)
+                
                 while True:
                     cur_k = None
                     with status_lock:
@@ -153,20 +169,24 @@ if start and file:
                         time.sleep(2); continue
 
                     w_status[t_idx] = f"Key {cur_k+1}..."
-                    res = call_gemini(manager[cur_k]["key"], chunk)
+                    res = call_gemini(manager[cur_k]["key"], chunk_text, expected)
                     
                     with status_lock:
                         manager[cur_k]["last_finished"] = datetime.now(); manager[cur_k]["in_use"] = False
-                        if "ERR:" not in res and res != "EMPTY":
+                        if "ERR:" not in res:
                             w_status[t_idx] = "✅ Xong"
                             return t_idx, res
                         else:
-                            # Nếu lỗi hoặc rỗng, khai tử key đó
-                            manager[cur_k]["status"] = "DEAD"
-                            cur_k = None # Lặp lại để tìm key khác
+                            # NẾU CÒN TIẾNG TRUNG HOẶC THIẾU ĐOẠN -> THỬ LẠI
+                            w_status[t_idx] = "🔄 Lỗi/Tiếng Trung"
+                            time.sleep(1)
+                            # Nếu lỗi quá nghiêm trọng (như Key chết), mới đánh dấu DEAD
+                            if "429" in res or "401" in res:
+                                manager[cur_k]["status"] = "DEAD"
+                            cur_k = None
 
             with ThreadPoolExecutor(max_workers=5) as executor:
-                futures = [executor.submit(worker, j, "\n\n".join(wave_batches[j])) for j in range(num_tasks)]
+                futures = [executor.submit(worker, j, wave_batches[j]) for j in range(num_tasks)]
                 while not all(f.done() for f in futures):
                     refresh_ui()
                     for j in range(5):
@@ -177,23 +197,13 @@ if start and file:
                 
                 for f in futures:
                     idx, res = f.result()
-                    if res == "FATAL": st.error("🛑 Trận pháp gãy! Hết linh lực."); st.stop()
-                    # Lưu chính xác vị trí mảnh ghép
+                    if res == "FATAL": st.error("🛑 Trận pháp gãy!"); st.stop()
                     results[wave_idx * 5 + idx] = res
 
-            p_val = (wave_idx + 1) / len(waves)
-            p_bar.progress(p_val)
-            progress_info.write(f"Đã luyện xong đợt {wave_idx+1}/{len(waves)}")
+            p_bar.progress((wave_idx + 1) / len(waves))
 
-        # --- BƯỚC KIỂM TRA CHÂN TÂM ---
-        if len(results) < len(batches):
-            st.warning(f"⚠️ Cảnh báo: Chỉ tìm thấy {len(results)}/{len(batches)} mảnh ghép. Một số đoạn có thể đã bị thất lạc!")
-        
-        final_srt = "\n\n".join([results[i] for i in range(len(batches)) if i in results])
-        
-        st.success("🎉 Trận pháp hoàn tất!")
-        st.download_button("📥 TẢI BẢN DỊCH (KIỂM TRA LẠI)", final_srt, file_name=f"Fixed_{file.name}", use_container_width=True)
-        st.balloons()
-        
+        st.success("🎉 Phục Ma hoàn tất!")
+        final_srt = "\n\n".join([results[i] for i in range(len(batches))])
+        st.download_button("📥 TẢI BẢN DỊCH SẠCH", final_srt, file_name=f"Clean_{file.name}", use_container_width=True)
     except Exception as e:
         st.error(f"Sụp đổ: {e}")
