@@ -21,11 +21,11 @@ from datetime import datetime, timedelta
 # NẠP 5 VIÊN LINH THẠCH GEMINI MỚI VÀO ĐÂY
 # =========================================================
 LIST_API_KEYS = [
-    "AIzaSyCTpvM7EmyXiJ93PKMHDNDK_rDiR33pdHI",
-    "AIzaSyDa3R-P4ZoTEJqKGhAolR0gKoR29fS9fjw",
-    "AIzaSyBADzpSc2Gv7q6ZroUVBcefVhONbVpGUJo",
-    "AIzaSyCopyWAn_dGN-QU1C9NWwiiI4NpsNkZq0I",
-    "AIzaSyALXMyBw1Noob3CJCHRar67KyEA51mv9zk"
+    "AIzaSyDRIUktlc_jqlgMxZnQf9SOzuQ7ZxlMrrw",
+    "AIzaSyDyFADpldbryZX9llfA7A5qnQy8ucEdDIY",
+    "AIzaSyCdhM-5X8Jr47XYH6Akx8Q9QKIuXRmW6aE",
+    "AIzaSyDxexUAUExQms_j1sy1ykc66LNpo6TYHgE",
+    "AIzaSyBE1kXb8SZZvH9VVXqZMVCJOu5Xye1F7gk"
 ]
 # =========================================================
 
@@ -70,7 +70,13 @@ manager = st.session_state.key_manager
 def call_gemini(api_key, text_data):
     try:
         client = genai.Client(api_key=api_key)
-        sys_prompt = "Dịch SRT sang tiếng Việt võ hiệp. Giữ nguyên timestamps."
+        sys_prompt = (
+        "Bạn là đại sư dịch thuật Donghua chuyên nghiệp. "
+        "Dịch các đoạn SRT sau sang tiếng Việt phong cách VÕ HIỆP, CỔ TRANG.\n"
+        "XƯNG HÔ: Ta, Ngươi, Lão phu, Tiểu tử, Bổn tọa, Tiền bối, Huynh, Đệ, Muội...\n"
+        "VĂN PHONG: Hào sảng, trau chuốt, tự nhiên cho thuyết minh. GIỮ NGUYÊN timestamps.\n"
+        "QUY TẮC: KHÔNG gộp/tách đoạn. Chỉ trả về nội dung SRT."
+        )
         response = client.models.generate_content(
             model="gemini-3-flash-preview", 
             contents=f"{sys_prompt}\n\n{text_data}",
