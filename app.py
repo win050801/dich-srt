@@ -124,7 +124,7 @@ if file:
             raw_content = file.getvalue().decode("utf-8-sig", errors="replace").strip()
             blocks = [b.strip() for b in re.split(r'\n\s*\n', raw_content) if b.strip()]
             
-            batch_size = 100 
+            batch_size = 70 
             batches = [blocks[i:i + batch_size] for i in range(0, len(blocks), batch_size)]
             waves = [batches[i:i + 5] for i in range(0, len(batches), 5)]
             
