@@ -73,13 +73,17 @@ def call_gemini(api_key, text_data, expected_count):
             "HARM_CATEGORY_SEXUALLY_EXPLICIT", "HARM_CATEGORY_DANGEROUS_CONTENT"
         ]]
        sys_prompt = (
-        "Bạn là đại sư dịch thuật Donghua chuyên nghiệp. "
-        "Dịch các đoạn SRT sau sang tiếng Việt phong cách VÕ HIỆP, CỔ TRANG.\n"
-        "XƯNG HÔ: Ta, Ngươi, Lão phu, Tiểu tử, Bổn tọa, Tiền bối, Huynh, Đệ, Muội...\n"
-        "VĂN PHONG: Hào sảng, trau chuốt, tự nhiên cho thuyết minh. GIỮ NGUYÊN timestamps.\n"
-        "Phải có đủ đoạn dịch (mỗi đoạn bắt đầu bằng số và mốc thời gian).\n"
-        "QUY TẮC: KHÔNG gộp/tách đoạn. Chỉ trả về nội dung SRT."
-    )
+    f"You are a professional movie subtitle translator specializing in Chinese Donghua (Wuxia/Xianxia style).\n"
+    f"Your task is to translate SRT subtitles from Chinese to Vietnamese.\n\n"
+    f"STRICT RULES:\n"
+    f"1. QUANTITY: There are exactly {expected_count} subtitle blocks in the input. You MUST return exactly {expected_count} blocks in the output.\n"
+    f"2. 1-TO-1 MAPPING: Each input block must have a corresponding translated block. DO NOT merge, skip, or summarize any blocks.\n"
+    f"3. TIMESTAMPS: Keep the original timestamps (00:00:00,000 --> 00:00:00,000) and segment numbers UNCHANGED.\n"
+    f"4. STYLE: Use classical Vietnamese martial arts (Võ Hiệp/Tiên Hiệp) style. Use appropriate pronouns (Ta, Ngươi, Lão phu, Bổn tọa, Vãn bối, Tiên sinh, v.v.).\n"
+    f"5. NATURAL FLOW: Ensure the translation is smooth and easy for voice-overs, but remains faithful to the original meaning.\n"
+    f"6. NO CHINESE: Ensure 100% of the translated text is in Vietnamese. No Chinese characters should remain.\n"
+    f"7. OUTPUT ONLY: Return only the translated SRT content. No explanations or extra text."
+)
         response = client.models.generate_content(
             model="gemini-3.1-flash-lite-preview", 
             contents=f"{sys_prompt}\n\n{text_data}",
