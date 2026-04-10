@@ -77,7 +77,7 @@ def call_gemini(api_key, text_data, expected_count):
         "Dịch các đoạn SRT sau sang tiếng Việt phong cách VÕ HIỆP, CỔ TRANG.\n"
         "XƯNG HÔ: Ta, Ngươi, Lão phu, Tiểu tử, Bổn tọa, Tiền bối, Huynh, Đệ, Muội...\n"
         "VĂN PHONG: Hào sảng, trau chuốt, tự nhiên cho thuyết minh. GIỮ NGUYÊN timestamps.\n"
-        "Phải có đủ {expected_count} đoạn dịch (mỗi đoạn bắt đầu bằng số và mốc thời gian).\n"
+        "Phải có đủ đoạn dịch (mỗi đoạn bắt đầu bằng số và mốc thời gian).\n"
         "QUY TẮC: KHÔNG gộp/tách đoạn. Chỉ trả về nội dung SRT."
     )
         response = client.models.generate_content(
