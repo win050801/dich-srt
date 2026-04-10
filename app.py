@@ -17,24 +17,24 @@ except:
     pass
 
 # =========================================================
-# GIAO DIỆN CÀN KHÔN (GỌN GÀNG - TINH TẾ)
+# GIAO DIỆN PHONG THÁI VÕ HIỆP TỐI GIẢN
 # =========================================================
-st.set_page_config(page_title="Donghua Càn Khôn v65", page_icon="🔱", layout="wide")
+st.set_page_config(page_title="Donghua v67 - Vô Trung Sinh Hữu", page_icon="🔱", layout="wide")
 
 st.markdown("""
     <style>
-    .stApp { background-color: #0b0e14; color: #cbd5e1; }
+    .stApp { background-color: #0d1117; color: #c9d1d9; }
     [data-testid="stSidebar"] { background-color: #161b22 !important; border-right: 1px solid #30363d; }
-    .key-box { padding: 8px; border-radius: 6px; text-align: center; border: 1px solid #30363d; font-size: 0.75rem; margin-bottom: 5px; }
-    .k-active { background: #064e3b; color: #4ade80; border-color: #238636; }
-    .k-busy { background: #1e3a8a; color: #60a5fa; border-color: #1f6feb; }
-    .k-cool { background: #451a03; color: #fbbf24; border-color: #9e6a03; }
-    .k-dead { background: #490e0e; color: #f87171; border-color: #da3633; }
-    .w-box { padding: 6px; border-radius: 4px; border: 1px solid #30363d; font-size: 0.75rem; text-align: center; background: #0d1117; }
-    .w-run { color: #58a6ff; border-color: #58a6ff; }
-    .w-done { color: #3fb950; border-color: #3fb950; }
-    .w-retry { color: #d29922; border-color: #d29922; animation: pulse 1s infinite; }
-    @keyframes pulse { 50% { opacity: 0.6; } }
+    .key-box { padding: 6px; border-radius: 6px; text-align: center; border: 1px solid #30363d; font-size: 0.75rem; margin-bottom: 5px; }
+    .k-active { background: #238636; color: #aff5b4; }
+    .k-busy { background: #1f6feb; color: #c2e0ff; }
+    .k-cool { background: #9e6a03; color: #ffdf5d; }
+    .k-dead { background: #da3633; color: #ffd1d1; }
+    .w-box { padding: 8px; border-radius: 4px; border: 1px solid #30363d; font-size: 0.75rem; text-align: center; background: #010409; }
+    .w-run { color: #58a6ff; border: 1px solid #58a6ff; }
+    .w-retry { color: #d29922; border: 2px dashed #d29922; animation: blinker 1s linear infinite; }
+    @keyframes blinker { 50% { opacity: 0; } }
+    .w-done { color: #3fb950; border: 1px solid #3fb950; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -45,7 +45,7 @@ RAW_KEYS = [os.getenv(f"GEMINI_KEY_{i}") for i in range(1, 21)]
 VALID_KEYS = [k.strip() for k in RAW_KEYS if k and len(k.strip()) > 10]
 
 if not VALID_KEYS:
-    st.sidebar.error("🛑 Không tìm thấy linh thạch trong .env hoặc Secrets!")
+    st.sidebar.error("🛑 Không tìm thấy linh thạch! Hãy nạp Key vào .env hoặc Secrets.")
     st.stop()
 
 if 'key_manager' not in st.session_state:
@@ -57,20 +57,19 @@ if 'key_manager' not in st.session_state:
 manager = st.session_state.key_manager
 status_lock = threading.Lock()
 
-def validate_result(text, expected_count):
-    """Kiểm tra tính nguyên vẹn của linh đan (kết quả dịch)"""
-    if not text or len(text.strip()) < 50: return "Rỗng/Quá ngắn"
+def check_clean_vietnamese(text, expected_count):
+    """Kính chiếu yêu: Chỉ cho phép tiếng Việt sạch và đủ mốc thời gian"""
+    if not text or len(text.strip()) < 30: return False
     
-    # Quét chữ Trung (giản thể, phồn thể, bộ thủ mở rộng)
+    # Quét toàn bộ dải chữ Hán (giản thể, phồn thể, bộ thủ)
     if re.search(r'[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]', text):
-        return "Còn chữ Trung"
+        return False
     
-    # Kiểm tra số lượng block (cho phép sai số 5% do lỗi phân tách)
-    blocks = [b for b in re.split(r'\n\s*\n', text.strip()) if b.strip()]
-    if len(blocks) < expected_count * 0.9:
-        return f"Thiếu đoạn ({len(blocks)}/{expected_count})"
-    
-    return None
+    # Đếm mốc thời gian -->
+    if text.count("-->") < expected_count:
+        return False
+        
+    return True
 
 def call_gemini(api_key, text_data, expected_count):
     try:
@@ -81,37 +80,37 @@ def call_gemini(api_key, text_data, expected_count):
         ]]
         
         sys_prompt = (
-            f"Bạn là chuyên gia dịch thuật SRT. Dịch sang tiếng Việt võ hiệp.\n"
-            f"YÊU CẦU: Dịch đúng {expected_count} đoạn. KHÔNG bỏ sót. KHÔNG để lại chữ Trung Quốc.\n"
-            f"Giữ nguyên timestamps và số thứ tự."
+            f"Bạn là một dịch giả võ hiệp cổ trang chuyên nghiệp.\n"
+            f"NHIỆM VỤ: Dịch SRT sang tiếng Việt.\n"
+            f"YÊU CẦU BẮT BUỘC:\n"
+            f"1. Phải có đủ {expected_count} đoạn dịch (mỗi đoạn bắt đầu bằng số và mốc thời gian).\n"
+            f"2. TUYỆT ĐỐI KHÔNG TRẢ VỀ CHỮ TRUNG QUỐC. Nếu không dịch được, hãy bỏ qua chữ đó nhưng phải giữ tiếng Việt.\n"
+            f"3. Giữ nguyên timestamps chuẩn xác."
         )
         
         response = client.models.generate_content(
-            model="gemini-3-flash-preview", 
+            model="gemini-3.1-pro-preview", 
             contents=f"{sys_prompt}\n\nNỘI DUNG:\n{text_data}",
-            config=types.GenerateContentConfig(temperature=0.2, safety_settings=safety)
+            config=types.GenerateContentConfig(temperature=0.15, safety_settings=safety)
         )
         
-        res_text = response.text.strip() if response.text else ""
-        error = validate_result(res_text, expected_count)
-        if error: return f"ERR_VAL: {error}"
-        return res_text
+        return response.text.strip() if response.text else ""
     except Exception as e:
-        return f"ERR_SYS: {str(e)}"
+        return f"ERR_SYSTEM: {str(e)}"
 
 # =========================================================
-# GIAO DIỆN ĐIỀU KHIỂN
+# GIAO DIỆN SIDEBAR
 # =========================================================
 with st.sidebar:
-    st.title("🔱 CÀN KHÔN v65")
-    file = st.file_uploader("📜 Nạp file .srt", type=["srt"])
-    b_size = st.number_input("Đoạn/Lô", 10, 150, 70)
-    c_time = st.number_input("Giây nghỉ/Key", 0, 120, 15)
+    st.title("🔱 VÔ TRUNG SINH HỮU")
+    file = st.file_uploader("📜 Nạp bí tịch (.srt)", type=["srt"])
+    b_size = st.number_input("Số đoạn/Lô", 10, 100, 50)
+    c_time = st.number_input("Giây nghỉ/Key", 0, 60, 15)
     start = st.button("⚔️ KHAI TRẬN", use_container_width=True, type="primary")
 
 col_left, col_right = st.columns([1, 3])
 with col_left:
-    st.caption("📡 Linh Thạch")
+    st.caption("📡 Trạng thái Key")
     k_places = [st.empty() for _ in range(len(VALID_KEYS))]
 
 with col_right:
@@ -136,18 +135,16 @@ def refresh_ui():
 refresh_ui()
 
 # =========================================================
-# LÕI PHỤC MA (PROCESSING)
+# LÕI VẬN HÀNH
 # =========================================================
 if start and file:
     try:
         raw = file.getvalue().decode("utf-8-sig", errors="replace").strip()
         blocks = [b.strip() for b in re.split(r'\n\s*\n', raw) if b.strip()]
-        # Chia Batch
         batches = [blocks[i:i + b_size] for i in range(0, len(blocks), b_size)]
-        # Chia Wave (Mỗi wave 5 batch tương ứng 5 worker)
         waves = [batches[i:i + 5] for i in range(0, len(batches), 5)]
         
-        results = {} # Lưu kết quả theo đúng index
+        results = {}
         total_batches = len(batches)
 
         for wave_idx, wave_batches in enumerate(waves):
@@ -156,40 +153,45 @@ if start and file:
 
             def worker(rel_idx, chunk_blocks):
                 abs_idx = wave_idx * 5 + rel_idx
-                expected = len(chunk_blocks)
-                text_to_send = "\n\n".join(chunk_blocks)
-                retry_limit = 3
+                expected_count = len(chunk_blocks)
+                chunk_text = "\n\n".join(chunk_blocks)
                 
-                for attempt in range(retry_limit):
+                # VÒNG LẶP LUÂN HỒI: Chạy đến khi sạch tiếng Trung mới thôi
+                attempt = 0
+                while True:
+                    attempt += 1
                     cur_k = None
-                    while cur_k is None:
-                        with status_lock:
-                            for i in range(len(VALID_KEYS)):
-                                k = manager[i]
-                                if k["status"] == "ACTIVE" and not k["in_use"] and (datetime.now() - k["last_finished"]).total_seconds() >= c_time:
-                                    cur_k = i; k["in_use"] = True; break
-                        if cur_k is None:
-                            if not any(k["status"] == "ACTIVE" for k in manager.values()): return abs_idx, "FATAL"
-                            time.sleep(2)
+                    # Tìm Key rảnh
+                    with status_lock:
+                        for i in range(len(VALID_KEYS)):
+                            k = manager[i]
+                            if k["status"] == "ACTIVE" and not k["in_use"] and (datetime.now() - k["last_finished"]).total_seconds() >= c_time:
+                                cur_k = i; k["in_use"] = True; break
+                    
+                    if cur_k is None:
+                        if not any(k["status"] == "ACTIVE" for k in manager.values()): return abs_idx, "FATAL"
+                        w_info[rel_idx] = {"msg": "⏳ Đợi Key...", "style": "w-retry"}
+                        time.sleep(2); continue
 
-                    w_info[rel_idx] = {"msg": f"Key {cur_k+1} (Lần {attempt+1})", "style": "w-run"}
-                    res = call_gemini(manager[cur_k]["key"], text_to_send, expected)
+                    w_info[rel_idx] = {"msg": f"Key {cur_k+1} (Lần {attempt})", "style": "w-run"}
+                    res_raw = call_gemini(manager[cur_k]["key"], chunk_text, expected_count)
                     
                     with status_lock:
                         manager[cur_k]["last_finished"] = datetime.now()
                         manager[cur_k]["in_use"] = False
                         
-                        if "ERR_" not in res:
-                            w_info[rel_idx] = {"msg": "✅ Xong", "style": "w-done"}
-                            return abs_idx, res
+                        # KIỂM TRA CHẤT LƯỢNG
+                        if check_clean_vietnamese(res_raw, expected_count):
+                            w_info[rel_idx] = {"msg": "✅ Hoàn tất", "style": "w-done"}
+                            return abs_idx, res_raw
                         else:
-                            # Nếu lỗi 429/401 thì giết key, lỗi validation thì cho thử lại
-                            if "429" in res or "401" in res: manager[cur_k]["status"] = "DEAD"
-                            w_info[rel_idx] = {"msg": "🔄 Thử lại...", "style": "w-retry"}
-                            time.sleep(2)
-                            cur_k = None # Tìm key mới cho lần thử tiếp theo
-                
-                return abs_idx, "FAILED"
+                            # Nếu lỗi 429/401 thì phế Key, nếu lỗi nội dung thì bắt dịch lại
+                            if "429" in res_raw or "401" in res_raw:
+                                manager[cur_k]["status"] = "DEAD"
+                            
+                            w_info[rel_idx] = {"msg": f"🔄 Lỗi/Tiếng Trung (Thử lại {attempt})", "style": "w-retry"}
+                            time.sleep(1.5)
+                            cur_k = None # Ép tìm Key khác
 
             with ThreadPoolExecutor(max_workers=5) as executor:
                 futures = [executor.submit(worker, j, wave_batches[j]) for j in range(num_tasks)]
@@ -202,20 +204,16 @@ if start and file:
                 
                 for f in futures:
                     idx, res = f.result()
-                    if res == "FATAL": st.error("🛑 Trận pháp tan vỡ! Tất cả Key đã hỏng."); st.stop()
-                    results[idx] = res # GHÉP ĐÚNG VỊ TRÍ THEO INDEX
+                    if res == "FATAL": st.error("🛑 Trận pháp sụp đổ! Hãy nạp thêm Gmail mới."); st.stop()
+                    results[idx] = res
 
             p_bar.progress((wave_idx + 1) / len(waves))
-            msg_box.info(f"Đã luyện xong {min((wave_idx+1)*5, total_batches)}/{total_batches} mảnh ghép")
+            msg_box.info(f"Tiến độ: {min((wave_idx+1)*5, total_batches)}/{total_batches} lô đã luyện xong.")
 
-        # KIỂM TRA TỔNG THỂ TRƯỚC KHI XUẤT BẢN
-        final_srt_blocks = []
-        for i in range(total_batches):
-            content = results.get(i, f"\n{i+1}\n00:00:00,000 --> 00:00:00,000\n[Mảnh ghép {i+1} bị lỗi]\n")
-            final_srt_blocks.append(content)
-        
-        st.success("🎉 Càn Khôn Nhất Định! Bí tịch đã hoàn thành.")
-        st.download_button("📥 TẢI BẢN DỊCH HOÀN HẢO", "\n\n".join(final_srt_blocks), file_name=f"Fixed_v65_{file.name}", use_container_width=True)
+        # HỢP NHẤT BÍ TỊCH
+        final_srt = "\n\n".join([results[i] for i in range(total_batches)])
+        st.success("🎉 Bí tịch v67 đã hoàn thành! Sạch bóng tiếng Trung.")
+        st.download_button("📥 TẢI BẢN DỊCH TINH KHIẾT", final_srt, file_name=f"V67_Pure_{file.name}", use_container_width=True)
         st.balloons()
 
     except Exception as e:
