@@ -19,28 +19,27 @@ except ImportError:
 try: from dotenv import load_dotenv; load_dotenv()
 except: pass
 
-st.set_page_config(page_title="Thiên Quân v70.6 - Chiếu Yêu Kính", page_icon="🔱", layout="wide")
+st.set_page_config(page_title="Thiên Quân v70.7 - Hiển Lộ", page_icon="🔱", layout="wide")
 
 st.markdown("""
     <style>
     .stApp { background-color: #0d1117; color: #c9d1d9; }
-    [data-testid="stSidebar"] { background-color: #161b22 !important; border-right: 1px solid #30363d; }
     .error-box { 
-        padding: 10px; 
+        padding: 8px; 
         background-color: #3e0b0b; 
         color: #ff9b9b; 
         border: 1px solid #da3633; 
-        border-radius: 5px; 
-        font-family: 'Courier New', monospace;
-        font-size: 0.85rem;
-        margin-bottom: 5px;
+        border-radius: 4px; 
+        font-family: monospace;
+        font-size: 0.8rem;
+        margin-bottom: 4px;
     }
-    .status-msg { font-size: 0.8rem; color: #8b949e; }
+    .log-title { color: #58a6ff; font-weight: bold; margin-bottom: 5px; }
     </style>
     """, unsafe_allow_html=True)
 
 # =========================================================
-# QUẢN LÝ KEY & TRẠNG THÁI
+# KHỞI TẠO DỮ LIỆU
 # =========================================================
 RAW_KEYS = [os.getenv(f"GEMINI_KEY_{i}") for i in range(1, 21)]
 VALID_KEYS = [k.strip() for k in RAW_KEYS if k and len(k.strip()) > 10]
@@ -55,67 +54,44 @@ if 'error_logs' not in st.session_state: st.session_state.error_logs = []
 manager = st.session_state.key_manager
 status_lock = threading.Lock()
 
-# =========================================================
-# THẦN CHÚ AI (KÈM BỘ LỌC LỖI CHI TIẾT)
-# =========================================================
 def call_gemini(api_key, text_data, expected, glossary, model):
     try:
         client = genai.Client(api_key=api_key)
         prompt = f"Translate {expected} SRT blocks to Vietnamese. Style: Wuxia. Glossary: {glossary}. Output ONLY RAW SRT."
         response = client.models.generate_content(model=model, contents=f"{prompt}\n\n{text_data}")
-        res = response.text.strip() if response.text else ""
-        if res.count("-->") < expected:
-            return f"❌ LỖI ĐỊNH DẠNG: AI chỉ trả về {res.count('-->')}/{expected} đoạn. Nội dung rác: {res[:50]}..."
-        return res
+        return response.text.strip() if response.text else "❌ LỖI: AI trả về rỗng."
     except Exception as e:
-        # Bắt toàn bộ thông báo lỗi từ Google API
         return f"❌ LỖI HỆ THỐNG: {str(e)}"
 
 # =========================================================
-# SIDEBAR
+# GIAO DIỆN
 # =========================================================
 with st.sidebar:
-    st.title("🔱 THIÊN QUÂN v70.6")
+    st.title("🔱 THIÊN QUÂN v70.7")
     file = st.file_uploader("📜 Nạp bí tịch", type=["srt"])
-    is_safe_mode = st.checkbox("🐢 SAFE MODE (Cho tài khoản Free)", value=True)
-    
-    if is_safe_mode:
-        n_workers, c_time, b_size = 1, 25, 30
-    else:
-        n_workers = st.slider("Số luồng xử lý", 1, 10, 5)
-        c_time = st.number_input("Giây nghỉ/Key", 5, 60, 15)
-        b_size = st.number_input("Số đoạn/Lô", 10, 100, 50)
-    
     model_choice = st.selectbox("🔮 Chọn Model", ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-3.1-flash-lite-preview"])
-    if st.button("🗑️ XÓA NHẬT KÝ LỖI"):
-        st.session_state.error_logs = []
-        st.rerun()
+    is_safe_mode = st.checkbox("🐢 SAFE MODE", value=True)
+    
+    if is_safe_mode: n_workers, c_time, b_size = 1, 30, 30
+    else:
+        n_workers = st.slider("Số luồng", 1, 10, 5)
+        c_time = st.number_input("Giây nghỉ", 5, 60, 15)
+        b_size = st.number_input("Đoạn/Lô", 10, 100, 50)
 
-# =========================================================
-# GIAO DIỆN CHÍNH
-# =========================================================
 tab1, tab2 = st.tabs(["📝 TỪ ĐIỂN", "⚔️ DỊCH & TRUY VẾT"])
 
 with tab1:
-    st.session_state.glossary = st.text_area("Từ điển đối chiếu:", value=st.session_state.get('glossary', ''), height=300)
+    st.session_state.glossary = st.text_area("Từ điển:", value=st.session_state.get('glossary', ''), height=200)
 
 with tab2:
-    if not file:
-        st.info("Hãy nạp file ở Sidebar.")
-    else:
+    if file:
         p_bar = st.progress(0)
-        st.subheader("🕵️ Nhật Ký Truy Vết Lỗi")
-        log_container = st.container() # Nơi hiện lỗi
-        
-        start_btn = st.button("🚀 BẮT ĐẦU DỊCH", type="primary", use_container_width=True)
-
-        # Hiển thị lỗi cũ nếu có
-        with log_container:
-            for log in st.session_state.error_logs[-5:]: # Hiện 5 lỗi gần nhất
-                st.markdown(f"<div class='error-box'>{log}</div>", unsafe_allow_html=True)
+        st.markdown("<div class='log-title'>🕵️ Nhật Ký Truy Vết Lỗi (Thời gian thực)</div>", unsafe_allow_html=True)
+        log_view = st.empty() # VÙNG HIỂN THỊ LỖI QUAN TRỌNG
+        start_btn = st.button("🚀 KHAI TRẬN", type="primary", use_container_width=True)
 
 # =========================================================
-# VẬN HÀNH
+# VẬN HÀNH LUỒNG
 # =========================================================
 if file and 'start_btn' in locals() and start_btn:
     raw = file.getvalue().decode("utf-8-sig", errors="replace").strip()
@@ -133,36 +109,37 @@ if file and 'start_btn' in locals() and start_btn:
                     if k_data["status"] == "ACTIVE" and not k_data["in_use"] and (datetime.now() - k_data["last_finished"]).total_seconds() >= c_time:
                         cur_k = i; k_data["in_use"] = True; break
             
-            if cur_k is None:
-                if not any(k["status"] == "ACTIVE" for k in manager.values()):
-                    st.session_state.error_logs.append("‼️ CẢNH BÁO: Tất cả Key đã cạn linh lực!")
-                    return
-                time.sleep(2); continue
+            if cur_k is None: time.sleep(1); continue
 
             res = call_gemini(manager[cur_k]["key"], "\n\n".join(batches[idx]), len(batches[idx]), st.session_state.glossary, model_choice)
             
             with status_lock:
-                manager[cur_k]["last_finished"] = datetime.now()
-                manager[cur_k]["in_use"] = False
-                
+                manager[cur_k]["last_finished"] = datetime.now(); manager[cur_k]["in_use"] = False
                 if not res.startswith("❌"):
                     results[idx] = res; stats["done"] += 1; return
                 else:
-                    # Ghi nhận lỗi chi tiết vào kho dữ liệu
-                    error_msg = f"[{datetime.now().strftime('%H:%M:%S')}] Lô {idx+1} (Key {cur_k+1}): {res}"
+                    error_msg = f"Lô {idx+1} (Key {cur_k+1}): {res}"
                     st.session_state.error_logs.append(error_msg)
-                    if "429" in res or "quota" in res.lower() or "limit" in res.lower():
-                        manager[cur_k]["status"] = "DEAD"
-                    time.sleep(5)
+                    if "429" in res or "quota" in res.lower(): manager[cur_k]["status"] = "DEAD"
+                    time.sleep(10) # Bị lỗi thì nghỉ lâu hơn
 
     with ThreadPoolExecutor(max_workers=n_workers) as executor:
         for i in range(len(batches)): executor.submit(worker_logic, i)
+        
         while stats["done"] < len(batches):
             p_bar.progress(stats["done"] / len(batches))
-            # Cập nhật UI lỗi thời gian thực
+            
+            # ĐƯA LỖI RA MÀN HÌNH NGAY LẬP TỨC
+            if st.session_state.error_logs:
+                # Lấy 10 lỗi mới nhất để đại hiệp xem
+                logs_html = "".join([f"<div class='error-box'>{log}</div>" for log in st.session_state.error_logs[-10:]])
+                log_view.markdown(logs_html, unsafe_allow_html=True)
+            
             time.sleep(1)
-            if not any(k["status"] == "ACTIVE" for k in manager.values()): break
+            if not any(k["status"] == "ACTIVE" for k in manager.values()):
+                st.error("Tất cả Key đã bị chặn (DEAD). Dừng trận pháp!")
+                break
 
     if stats["done"] == len(batches):
-        st.success("🎉 Hoàn tất!")
-        st.download_button("📥 Tải về", "\n\n".join([results[i] for i in range(len(batches))]), file_name=f"V70_6_{file.name}")
+        st.success("Dịch xong!")
+        st.download_button("Tải về", "\n\n".join([results[i] for i in range(len(batches))]), file_name=f"v70_7_{file.name}")
