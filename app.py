@@ -10,10 +10,9 @@ from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor
 
 # =========================================================
-# 🛡️ HÓA GIẢI IMPORT & CONTEXT (TRỊ DỨT ĐIỂM LỖI ĐƯỜNG DẪN)
+# 🛡️ HÓA GIẢI IMPORT & CONTEXT
 # =========================================================
 def get_context_helpers():
-    """Dò tìm hàm add_script_run_context ở mọi phiên bản Streamlit"""
     try:
         from streamlit.runtime.scriptrunner import add_script_run_context, get_script_run_context
         return add_script_run_context, get_script_run_context
@@ -22,25 +21,14 @@ def get_context_helpers():
             from streamlit.runtime.scriptrunner.script_run_context import add_script_run_context, get_script_run_context
             return add_script_run_context, get_script_run_context
         except ImportError:
-            try:
-                from streamlit.scriptrunner import add_script_run_context, get_script_run_context
-                return add_script_run_context, get_script_run_context
-            except ImportError:
-                return (lambda x: None), (lambda: None)
+            return (lambda x: None), (lambda: None)
 
 add_script_run_context, get_script_run_context = get_context_helpers()
 
-# Nạp linh khí từ file .env
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except:
-    pass
+try: from dotenv import load_dotenv; load_dotenv()
+except: pass
 
-# =========================================================
-# GIAO DIỆN PHONG THÁI CỔ TRANG (DARK MODE)
-# =========================================================
-st.set_page_config(page_title="Donghua v70.7 - Hiển Lộ", page_icon="🔱", layout="wide")
+st.set_page_config(page_title="Thiên Quân v70.9 - Nhất Kích", page_icon="🔱", layout="wide")
 
 st.markdown("""
     <style>
@@ -50,22 +38,13 @@ st.markdown("""
     .k-active { background: #238636; color: #fff; }
     .k-busy { background: #1f6feb; color: #fff; }
     .k-dead { background: #da3633; color: #fff; }
-    .error-box { 
-        padding: 10px; 
-        background-color: #3e0b0b; 
-        color: #ff9b9b; 
-        border: 1px solid #da3633; 
-        border-radius: 5px; 
-        font-family: 'Courier New', monospace;
-        font-size: 0.85rem;
-        margin-bottom: 5px;
-    }
-    .log-title { color: #58a6ff; font-weight: bold; margin-bottom: 10px; border-bottom: 1px solid #30363d; padding-bottom: 5px; }
+    .error-box { padding: 10px; background-color: #491111; color: #ff9b9b; border: 1px solid #da3633; border-radius: 5px; font-family: monospace; font-size: 0.85rem; margin-bottom: 5px; }
+    .log-title { color: #f85149; font-weight: bold; margin-bottom: 10px; border-bottom: 1px solid #da3633; padding-bottom: 5px; }
     </style>
     """, unsafe_allow_html=True)
 
 # =========================================================
-# QUẢN LÝ LINH LỰC (API KEYS)
+# 🏺 KHỞI TẠO ĐAN ĐIỀN (STATE)
 # =========================================================
 RAW_KEYS = [os.getenv(f"GEMINI_KEY_{i}") for i in range(1, 21)]
 VALID_KEYS = [k.strip() for k in RAW_KEYS if k and len(k.strip()) > 10]
@@ -75,92 +54,83 @@ if 'key_manager' not in st.session_state:
         i: {"status": "ACTIVE", "in_use": False, "last_finished": datetime.now() - timedelta(seconds=60), "key": k} 
         for i, k in enumerate(VALID_KEYS)
     }
-
 if 'error_logs' not in st.session_state: st.session_state.error_logs = []
 if 'results' not in st.session_state: st.session_state.results = {}
 if 'glossary' not in st.session_state: st.session_state.glossary = ""
+if 'stop_signal' not in st.session_state: st.session_state.stop_signal = False
 
 manager = st.session_state.key_manager
 status_lock = threading.Lock()
 result_lock = threading.Lock()
 
 # =========================================================
-# CHIÊU THỨC AI
+# ⚔️ CHIÊU THỨC AI
 # =========================================================
-def call_gemini(api_key, text_data, expected, glossary, model):
+def call_gemini_scan(api_key, text_data, model):
     try:
         client = genai.Client(api_key=api_key)
-        sys_prompt = (
-            f"Bạn là dịch giả SRT chuyên nghiệp. Dịch {expected} đoạn sau sang tiếng Việt phong cách Kiếm Hiệp.\n"
-            f"Từ điển: {glossary}\n"
-            f"Yêu cầu: Chỉ trả về nội dung SRT thô. Giữ nguyên mốc thời gian."
-        )
+        prompt = "Analyze this Chinese SRT. Extract main character names. Format: 'Gốc: Dịch'. No explanation."
+        response = client.models.generate_content(model=model, contents=f"{prompt}\n\n{text_data[:40000]}")
+        return response.text.strip() if response.text else ""
+    except Exception as e: return f"Lỗi quét: {str(e)}"
+
+def call_gemini_translate(api_key, text_data, expected, glossary, model):
+    try:
+        client = genai.Client(api_key=api_key)
+        sys_prompt = f"Dịch {expected} đoạn SRT sang tiếng Việt Kiếm Hiệp. Từ điển: {glossary}. Chỉ trả về nội dung SRT thô."
         response = client.models.generate_content(model=model, contents=f"{sys_prompt}\n\n{text_data}")
         res = response.text.strip() if response.text else ""
         if res.count("-->") < expected:
-            return f"❌ LỖI ĐỊNH DẠNG: AI trả về thiếu đoạn ({res.count('-->')}/{expected})."
+            return f"❌ LỖI ĐỊNH DẠNG: AI trả về {res.count('-->')}/{expected} đoạn. Không chấp nhận."
         return res
-    except Exception as e:
-        return f"❌ LỖI HỆ THỐNG: {str(e)}"
+    except Exception as e: return f"❌ LỖI HỆ THỐNG: {str(e)}"
 
 # =========================================================
-# SIDEBAR & CẤU HÌNH
+# 🏯 GIAO DIỆN
 # =========================================================
 with st.sidebar:
-    st.title("🔱 THIÊN QUÂN v70.7")
+    st.title("🔱 THIÊN QUÂN v70.9")
     file = st.file_uploader("📜 Nạp bí tịch (.srt)", type=["srt"])
-    
     st.divider()
-    is_safe_mode = st.checkbox("🐢 SAFE MODE (Dành cho tài khoản Free)", value=True)
-    
-    if is_safe_mode:
-        n_workers, c_time, b_size = 1, 30, 30
-        st.warning("Đang bật Chế độ An toàn: 1 luồng, nghỉ 30s.")
-    else:
-        n_workers = st.slider("Số luồng xử lý", 1, 10, 5)
-        c_time = st.number_input("Giây nghỉ/Key", 5, 60, 15)
-        b_size = st.number_input("Số đoạn/Lô", 10, 100, 50)
-    
-    model_choice = st.selectbox("🔮 Pháp bảo (Model)", ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-3.1-flash-lite-preview"])
-    
-    if st.button("🗑️ XÓA NHẬT KÝ LỖI", use_container_width=True):
-        st.session_state.error_logs = []
+    model_choice = st.selectbox("🔮 Model", ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-3.1-flash-lite-preview"])
+    b_size = st.number_input("Số đoạn/Lô", 10, 100, 50)
+    c_time = st.number_input("Giây nghỉ/Key", 5, 60, 15)
+    n_workers = st.slider("Số luồng xử lý", 1, 10, 5)
+    if st.button("🗑️ DỌN DẸP DỮ LIỆU CŨ"): 
+        st.session_state.results = {}; st.session_state.error_logs = []; st.session_state.stop_signal = False
         st.rerun()
 
-# =========================================================
-# GIAO DIỆN CHÍNH
-# =========================================================
-tab1, tab2 = st.tabs(["📝 LINH NHÃN (TỪ ĐIỂN)", "⚔️ KHAI TRẬN DỊCH THUẬT"])
+tab1, tab2 = st.tabs(["📝 LINH NHÃN (TỪ ĐIỂN)", "⚔️ KHAI TRẬN"])
 
 with tab1:
-    st.session_state.glossary = st.text_area("Bảng đối chiếu Trung-Việt (Gốc: Dịch):", 
-                                             value=st.session_state.glossary, height=350)
+    if file:
+        if st.button("🔍 QUÉT TÊN NHÂN VẬT", type="primary"):
+            active_key = next((v["key"] for v in manager.values() if v["status"] == "ACTIVE"), VALID_KEYS[0])
+            with st.spinner("Đang soi xét..."):
+                st.session_state.glossary = call_gemini_scan(active_key, file.getvalue().decode("utf-8-sig", errors="replace"), model_choice)
+            st.rerun()
+    st.session_state.glossary = st.text_area("Từ điển đối chiếu:", value=st.session_state.glossary, height=350)
 
 with tab2:
-    if not file:
-        st.info("💡 Đại hiệp hãy nạp bí tịch ở Sidebar để bắt đầu.")
+    if not file: st.info("Hãy nạp bí tịch ở Sidebar.")
     else:
         col_k, col_w = st.columns([1, 2.5])
         k_places = [col_k.empty() for _ in range(len(VALID_KEYS))]
         w_places = [col_w.empty() for _ in range(n_workers)]
-        
         st.divider()
-        progress_bar = st.progress(0)
-        st.markdown("<div class='log-title'>🕵️ Nhật Ký Truy Vết Lỗi (Thời gian thực)</div>", unsafe_allow_html=True)
-        log_view = st.empty() # Nơi lỗi sẽ "hiển lộ"
-        
-        start_btn = st.button("🚀 BẮT ĐẦU KHAI TRẬN", type="primary", use_container_width=True)
+        p_bar = st.progress(0)
+        log_view = st.empty()
+        start_btn = st.button("🚀 BẮT ĐẦU KHAI TRẬN (Chỉ 1 lần - Lỗi dừng luôn)", type="primary", use_container_width=True)
 
 # =========================================================
-# LÕI VẬN HÀNH (MULTI-THREADING + REAL-TIME LOGGING)
+# 🌊 LÕI VẬN HÀNH (NHẤT KÍCH TẤT SÁT)
 # =========================================================
 if file and 'start_btn' in locals() and start_btn:
-    # Xử lý dữ liệu đầu vào
+    st.session_state.stop_signal = False
     raw = file.getvalue().decode("utf-8-sig", errors="replace").strip()
     blocks = [b.strip() for b in re.split(r'\n\s*\n', raw) if b.strip()]
     batches = [blocks[i:i + b_size] for i in range(0, len(blocks), b_size)]
     total = len(batches)
-    
     st.session_state.results = {}
     stats = {"done": 0}
     worker_map = {i: {"msg": "Sẵn sàng", "style": ""} for i in range(n_workers)}
@@ -168,75 +138,54 @@ if file and 'start_btn' in locals() and start_btn:
 
     def worker_logic(idx, worker_id):
         add_script_run_context(main_ctx)
-        chunk_text = "\n\n".join(batches[idx])
-        expected = len(batches[idx])
-        
-        while True:
-            cur_k = None
+        # 1. Kiểm tra xem trận pháp có lệnh dừng chưa
+        if st.session_state.stop_signal: return
+
+        # 2. Tìm Key khả dụng
+        cur_k = None
+        while cur_k is None and not st.session_state.stop_signal:
             with status_lock:
                 for i, k_data in manager.items():
                     if k_data["status"] == "ACTIVE" and not k_data["in_use"] and (datetime.now() - k_data["last_finished"]).total_seconds() >= c_time:
                         cur_k = i; k_data["in_use"] = True; break
-            
-            if cur_k is None:
-                time.sleep(2); continue
+            if cur_k is None: time.sleep(1)
 
+        if cur_k is not None:
             worker_map[worker_id] = {"msg": f"Lô {idx+1}: Đang dịch...", "style": "color:#58a6ff;"}
-            res = call_gemini(manager[cur_k]["key"], chunk_text, expected, st.session_state.glossary, model_choice)
+            res = call_gemini_translate(manager[cur_k]["key"], "\n\n".join(batches[idx]), len(batches[idx]), st.session_state.glossary, model_choice)
             
             with status_lock:
-                manager[cur_k]["last_finished"] = datetime.now()
-                manager[cur_k]["in_use"] = False
+                manager[cur_k]["last_finished"] = datetime.now(); manager[cur_k]["in_use"] = False
                 
                 if not res.startswith("❌"):
-                    with result_lock:
-                        st.session_state.results[idx] = res
+                    # THÀNH CÔNG
+                    with result_lock: st.session_state.results[idx] = res
                     stats["done"] += 1
                     worker_map[worker_id] = {"msg": f"Lô {idx+1}: ✅ Xong", "style": "color:#3fb950;"}
-                    return
                 else:
-                    # Ghi lỗi vào nhật ký
-                    error_msg = f"[{datetime.now().strftime('%H:%M:%S')}] Lô {idx+1} (Key {cur_k+1}): {res}"
+                    # THẤT BẠI - DỪNG LUÔN, KHÔNG THỬ LẠI
+                    st.session_state.stop_signal = True # PHÁT LỆNH DỪNG TOÀN TRẬN
+                    error_msg = f"‼️ THẤT BẠI TẠI LÔ {idx+1}: {res}"
                     st.session_state.error_logs.append(error_msg)
-                    
-                    if "429" in res or "quota" in res.lower() or "limit" in res.lower():
-                        manager[cur_k]["status"] = "DEAD"
-                    
-                    worker_map[worker_id] = {"msg": f"Lô {idx+1}: 🔄 Thử lại...", "style": "color:#d29922;"}
-                    time.sleep(10)
+                    worker_map[worker_id] = {"msg": f"Lô {idx+1}: ❌ LỖI", "style": "color:#f85149; font-weight:bold;"}
 
-    # Khởi chạy đa luồng
     with ThreadPoolExecutor(max_workers=n_workers) as executor:
-        for i in range(total):
-            executor.submit(worker_logic, i, i % n_workers)
+        for i in range(total): executor.submit(worker_logic, i, i % n_workers)
         
-        # Vòng lặp cập nhật UI liên tục
-        while stats["done"] < total:
-            # 1. Cập nhật Sidebar Keys
+        while stats["done"] < total and not st.session_state.stop_signal:
             for i, k in manager.items():
                 cls = "k-dead" if k["status"] == "DEAD" else ("k-active" if not k["in_use"] else "k-busy")
-                txt = "💀 DIE" if k["status"] == "DEAD" else ("SẴN SÀNG" if not k["in_use"] else "ĐANG DỊCH")
-                k_places[i].markdown(f"<div class='key-box {cls}'><b>Key {i+1}</b><br>{txt}</div>", unsafe_allow_html=True)
-            
-            # 2. Cập nhật Worker Status
+                k_places[i].markdown(f"<div class='key-box {cls}'>Key {i+1}</div>", unsafe_allow_html=True)
             for i in range(n_workers):
                 info = worker_map[i]
                 w_places[i].markdown(f"<div style='font-size:0.8rem; padding:5px; border:1px solid #30363d; margin-bottom:2px; {info['style']}'><b>Worker {i+1}</b>: {info['msg']}</div>", unsafe_allow_html=True)
-            
-            # 3. Hiển thị Lỗi (Kính chiếu yêu)
             if st.session_state.error_logs:
-                logs_html = "".join([f"<div class='error-box'>{log}</div>" for log in st.session_state.error_logs[-8:]])
-                log_view.markdown(logs_html, unsafe_allow_html=True)
-            
-            progress_bar.progress(stats["done"] / total)
+                log_view.markdown("<div class='log-title'>💀 TRẬN PHÁP BỊ ĐỨT ĐOẠN - PHÁT HIỆN LỖI:</div>" + "".join([f"<div class='error-box'>{log}</div>" for log in st.session_state.error_logs]), unsafe_allow_html=True)
+            p_bar.progress(stats["done"] / total)
             time.sleep(1)
-            
-            if not any(k["status"] == "ACTIVE" for k in manager.values()):
-                st.error("‼️ TOÀN BỘ KEY ĐÃ CẠN LINH LỰC. DỪNG TRẬN PHÁP!")
-                break
 
-    if stats["done"] == total:
-        st.success("🎉 Bí tịch đã hoàn thành hoàn mỹ!")
-        final_srt = "\n\n".join([st.session_state.results[i] for i in range(total)])
-        st.download_button("📥 TẢI BẢN DỊCH CHUẨN", final_srt, file_name=f"V70_7_{file.name}", use_container_width=True)
-        st.balloons()
+    if st.session_state.stop_signal:
+        st.error("🛑 Trận pháp đã dừng do gặp lỗi. Đại hiệp hãy kiểm tra Nhật ký truy vết bên dưới.")
+    elif stats["done"] == total:
+        st.success("🎉 Xuất sắc! Toàn bộ bí tịch đã được dịch mà không vấp một lỗi nào.")
+        st.download_button("📥 TẢI BẢN DỊCH", "\n\n".join([st.session_state.results[i] for i in range(total)]), file_name=f"V70_9_{file.name}", use_container_width=True)
