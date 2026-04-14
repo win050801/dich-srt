@@ -26,49 +26,33 @@ try: from dotenv import load_dotenv; load_dotenv()
 except: pass
 
 # =========================================================
-# GIAO DIỆN CHUẨN "HUYỀN VŨ" (GIỐNG HÌNH ẢNH)
+# GIAO DIỆN CHUẨN (BỎ SAFE MODE & RESET)
 # =========================================================
-st.set_page_config(page_title="Thiên Quân v71.3 - Huyền Vũ", page_icon="🔱", layout="wide")
+st.set_page_config(page_title="Thiên Quân v71.4 - Ngũ Long", page_icon="🔱", layout="wide")
 
 st.markdown("""
     <style>
     .stApp { background-color: #0d1117; color: #c9d1d9; }
     [data-testid="stSidebar"] { background-color: #161b22 !important; border-right: 1px solid #30363d; }
     
-    /* Style cho thanh Key giống trong hình */
     .key-box { 
-        padding: 12px; 
-        border-radius: 8px; 
-        text-align: center; 
-        font-size: 0.85rem; 
-        margin-bottom: 8px; 
-        font-weight: 500;
-        width: 100%;
-        color: white;
-        transition: all 0.3s;
+        padding: 12px; border-radius: 8px; text-align: center; 
+        font-size: 0.85rem; margin-bottom: 8px; font-weight: 500;
+        width: 100%; color: white; transition: all 0.3s;
     }
-    .k-active { background-color: #238636; border: 1px solid #2ea043; } /* Xanh lá */
-    .k-busy { background-color: #1f6feb; border: 1px solid #388bfd; }   /* Xanh dương */
-    .k-dead { background-color: #da3633; border: 1px solid #f85149; }   /* Đỏ */
+    .k-active { background-color: #238636; border: 1px solid #2ea043; } 
+    .k-busy { background-color: #1f6feb; border: 1px solid #388bfd; }   
+    .k-dead { background-color: #da3633; border: 1px solid #f85149; }   
     
-    /* Style cho Worker */
     .w-box {
-        padding: 10px;
-        background: #161b22;
-        border-left: 4px solid #58a6ff;
-        margin-bottom: 5px;
-        font-size: 0.85rem;
-        border-radius: 4px;
+        padding: 10px; background: #161b22; border-left: 4px solid #58a6ff;
+        margin-bottom: 5px; font-size: 0.85rem; border-radius: 4px;
     }
 
-    /* Style cho nút Bắt đầu màu đỏ rộng */
     div.stButton > button {
-        background-color: #ff4b4b !important;
-        color: white !important;
-        border: none !important;
-        padding: 15px !important;
-        font-size: 1.1rem !important;
-        font-weight: bold !important;
+        background-color: #ff4b4b !important; color: white !important;
+        border: none !important; padding: 15px !important;
+        font-size: 1.1rem !important; font-weight: bold !important;
         border-radius: 10px !important;
     }
     </style>
@@ -98,22 +82,22 @@ def call_gemini_api(api_key, prompt, content, model):
     except Exception as e: return f"❌ LỖI: {str(e)}"
 
 # =========================================================
-# SIDEBAR
+# SIDEBAR (ĐÃ LỌC BỎ SAFE MODE & RESET)
 # =========================================================
 with st.sidebar:
-    st.title("🔱 THIÊN QUÂN v71.3")
+    st.title("🔱 THIÊN QUÂN v71.4")
     file = st.file_uploader("📜 Nạp bí tịch (.srt)", type=["srt"])
-    model_choice = st.selectbox("🔮 Pháp bảo (Model)", ["gemini-3-flash-preview", "gemini-3.1-flash-lite-preview", "gemini-2.0-flash", "gemini-1.5-flash"])
-    st.divider()
-    is_safe_mode = st.checkbox("🐢 SAFE MODE", value=True)
-    if is_safe_mode: n_workers, c_time, b_size = 1, 30, 30
-    else:
-        n_workers = st.slider("Số luồng xử lý", 1, 10, 5)
-        c_time = st.number_input("Giây nghỉ/Key", 5, 60, 15)
-        b_size = st.number_input("Số đoạn/Lô", 10, 100, 50)
+    model_choice = st.selectbox("🔮 Model", [
+        "gemini-3-flash-preview", 
+        "gemini-3.1-flash-lite-preview",
+        "gemini-2.0-flash"
+    ], index=0)
     
-    if st.button("🗑️ RESET"):
-        st.session_state.results = {}; st.session_state.stop_signal = False; st.rerun()
+    st.divider()
+    # TRẢ LẠI 5 LUỒNG MẶC ĐỊNH
+    n_workers = st.slider("Số luồng xử lý", 1, 10, 5)
+    c_time = st.number_input("Giây nghỉ/Key", 5, 60, 15)
+    b_size = st.number_input("Số đoạn/Lô", 10, 100, 50)
 
 # =========================================================
 # GIAO DIỆN CHÍNH
@@ -134,28 +118,23 @@ with tab2:
     if not file:
         st.info("💡 Hãy nạp file ở Sidebar.")
     else:
-        # BỐ CỤC CHUẨN HÌNH ẢNH: Key bên trái, Worker bên phải
         col_k, col_w = st.columns([1, 2])
-        
         with col_k:
             st.markdown("#### 📡 Trạng Thái Key")
             k_places = [st.empty() for _ in range(len(VALID_KEYS))]
-            
         with col_w:
             st.markdown("#### 🌊 Trạng Thái Luồng")
             w_places = [st.empty() for _ in range(n_workers)]
-            
-        st.divider() # Thanh kẻ trắng như trong hình
-        p_bar = st.progress(0)
-        
-        # Nút bắt đầu đỏ rực, rộng toàn màn hình
-        start_btn = st.button("🚀 BẮT ĐẦU (LỖI LÀ DỪNG LUÔN)", use_container_width=True)
+            st.divider()
+            p_bar = st.progress(0)
+            start_btn = st.button("🚀 BẮT ĐẦU (LỖI LÀ DỪNG LUÔN)", use_container_width=True)
 
 # =========================================================
-# VẬN HÀNH LUỒNG
+# VẬN HÀNH LUỒNG (KHÔNG RETRY)
 # =========================================================
 if file and 'start_btn' in locals() and start_btn:
     st.session_state.stop_signal = False
+    st.session_state.results = {} # Reset kết quả trước khi chạy mới
     blocks = [b.strip() for b in re.split(r'\n\s*\n', file.getvalue().decode("utf-8-sig").strip()) if b.strip()]
     batches = [blocks[i:i + b_size] for i in range(0, len(blocks), b_size)]
     main_ctx = get_script_run_context()
@@ -174,8 +153,8 @@ if file and 'start_btn' in locals() and start_btn:
             if cur_k is None: time.sleep(1)
 
         if cur_k is not None:
-            worker_map[worker_id]["msg"] = f"⏳ Lô {idx+1}: Đang dịch..."
-            p = f"Translate {len(batches[idx])} SRT blocks to Wuxia style. Glossary: {st.session_state.glossary}. Raw SRT only."
+            worker_map[worker_id]["msg"] = f"⏳ Lô {idx+1}: Dịch..."
+            p = f"Translate {len(batches[idx])} SRT blocks to Wuxia style (Ta, Ngươi, Lão phu...). Glossary: {st.session_state.glossary}. Raw SRT only."
             res = call_gemini_api(manager[cur_k]["key"], p, "\n\n".join(batches[idx]), model_choice)
             
             with status_lock:
@@ -188,21 +167,15 @@ if file and 'start_btn' in locals() and start_btn:
 
     with ThreadPoolExecutor(max_workers=n_workers) as executor:
         for i in range(len(batches)): executor.submit(worker_logic, i, i % n_workers)
-        
         while stats["done"] < len(batches) and not st.session_state.stop_signal:
-            # Vẽ lại Key theo phong cách "thanh dài"
             for i, k in manager.items():
                 cls = "k-dead" if k["status"] == "DEAD" else ("k-active" if not k["in_use"] else "k-busy")
-                txt = f"Key {i+1}"
-                k_places[i].markdown(f"<div class='key-box {cls}'>{txt}</div>", unsafe_allow_html=True)
-            
-            # Vẽ lại Worker
+                k_places[i].markdown(f"<div class='key-box {cls}'>Key {i+1}</div>", unsafe_allow_html=True)
             for i in range(n_workers):
                 w_places[i].markdown(f"<div class='w-box'><b>Luồng {i+1}:</b> {worker_map[i]['msg']}</div>", unsafe_allow_html=True)
-            
             p_bar.progress(stats["done"] / len(batches)); time.sleep(1)
 
     if stats["done"] == len(batches):
-        st.success("🎉 Xuất sắc! Bí tịch đã dịch xong.")
+        st.success("🎉 Xong! Toàn bộ bí tịch đã dịch hoàn mỹ.")
         final_srt = "\n\n".join([st.session_state.results[i] for i in range(len(batches))])
-        st.download_button("📥 TẢI BẢN DỊCH", final_srt, file_name=f"V71_3_{file.name}", use_container_width=True)
+        st.download_button("📥 TẢI BẢN DỊCH", final_srt, file_name=f"V71_4_{file.name}", use_container_width=True)
