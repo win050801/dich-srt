@@ -127,7 +127,7 @@ with st.sidebar:
     file = st.file_uploader("📜 Nạp bí tịch (.srt)", type=["srt"])
     
     model_choice = st.selectbox("🔮 Chọn Pháp Bảo (Model)", 
-                               ["gemini-2.5-flash", "gemini-3-flash-preview"],
+                               ["gemini-2.5-flash-lite","gemini-2.5-flash", "gemini-3-flash-preview"],
                                index=0)
     
     b_size = st.number_input("Số đoạn/Lô", 10, 100, 50)
