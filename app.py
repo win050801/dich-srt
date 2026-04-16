@@ -126,7 +126,7 @@ with st.sidebar:
     st.title("🔱 THIÊN QUÂN v72.3")
     file = st.file_uploader("📜 Nạp bí tịch (.srt)", type=["srt"])
     model_choice = st.selectbox("🔮 Chọn Pháp Bảo (Model)", 
-                               ["gemini-3-flash-preview", "gemini-3.1-flash-lite-preview", "gemini-2.0-flash"],
+                               [ "gemini-3.1-flash-lite-preview","gemini-3-flash-preview", "gemini-2.5-flash"],
                                index=0)
     b_size = st.number_input("Số đoạn/Lô", 10, 100, 50)
     c_time = st.number_input("Giây nghỉ/Key", 5, 60, 15)
