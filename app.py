@@ -9,24 +9,20 @@ import threading
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor
 
-# --- HÓA GIẢI LỖI CONTEXT LUỒNG ---
+# --- ĐỒNG BỘ CONTEXT ---
 try:
     from streamlit.runtime.scriptrunner import add_script_run_context, get_script_run_context
 except ImportError:
     def add_script_run_context(*args, **kwargs): pass
     def get_script_run_context(*args, **kwargs): return None
 
-# --- PHÁP BẢO KHAI MÔN ---
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except:
-    pass
+try: from dotenv import load_dotenv; load_dotenv()
+except: pass
 
 # =========================================================
-# GIAO DIỆN PHONG THÁI CỔ TRANG (DARK MODE)
+# GIAO DIỆN DARK MODE
 # =========================================================
-st.set_page_config(page_title="Donghua v72.3 - Thái Thượng", page_icon="🔱", layout="wide")
+st.set_page_config(page_title="Thiên Quân v72.4 - Thanh Phong", page_icon="🔱", layout="wide")
 
 st.markdown("""
     <style>
@@ -47,7 +43,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # =========================================================
-# QUẢN LÝ LINH LỰC (API KEYS)
+# QUẢN LÝ LINH LỰC
 # =========================================================
 RAW_KEYS = [os.getenv(f"GEMINI_KEY_{i}") for i in range(1, 21)]
 VALID_KEYS = [k.strip() for k in RAW_KEYS if k and len(k.strip()) > 10]
@@ -68,46 +64,32 @@ status_lock = threading.Lock()
 worker_status_lock = threading.Lock()
 
 # =========================================================
-# CHIÊU THỨC AI (PROMPT TỐI ƯU TRAU CHUỐT)
+# ⚔️ BÍ KÍP PROMPT "THANH PHONG" (ĐÃ TỐI ƯU LẠI TỪ GỐC)
 # =========================================================
-def call_gemini_scan(api_key, text_data, model_name):
-    try:
-        client = genai.Client(api_key=api_key)
-        prompt = (
-            "Phân tích SRT Donghua này. Trích xuất tên nhân vật, địa danh, công pháp. "
-            "Dịch sang Hán-Việt chuẩn. Định dạng: 'Gốc: Hán Việt'. Không giải thích."
-        )
-        response = client.models.generate_content(
-            model=model_name,
-            contents=f"{prompt}\n\nCONTENT:\n{text_data[:35000]}"
-        )
-        return response.text.strip() if response.text else ""
-    except Exception as e: return f"Lỗi quét: {str(e)}"
-
 def call_gemini_translate(api_key, text_data, expected_count, glossary, model_name):
     try:
         client = genai.Client(api_key=api_key)
         
-        # PROMPT "THÁI THƯỢNG" - TRAU CHUỐT & SÚC TÍCH & HÀI HƯỚC
-        sys_prompt = f"""Bạn là dịch giả hàng đầu chuyên trách biên soạn kịch bản lồng tiếng cho Donghua (Hoạt hình Trung Quốc).
-Nhiệm vụ: Dịch SRT từ tiếng Trung sang tiếng Việt với phong vị Tiên Hiệp/Kiếm Hiệp thượng thừa.
+        # PROMPT MỚI: TẬP TRUNG VÀO SỰ TỰ NHIÊN, KHÔNG GƯỢNG ÉP
+        sys_prompt = f"""Bạn là dịch giả Donghua (phim hoạt hình Trung Quốc) lão luyện.
+Nhiệm vụ: Dịch SRT từ tiếng Trung sang tiếng Việt chuyên dùng cho LỒNG TIẾNG.
 
-TỪ ĐIỂN ĐỐI CHIẾU:
+YÊU CẦU CỐT LÕI:
+1. VĂN PHONG: Sử dụng ngôn ngữ Tiên Hiệp/Kiếm Hiệp tự nhiên, thoát ý. X xưng hô (Ta, Ngươi, Huynh, Đệ...) phải chuẩn mực theo ngữ cảnh. Tránh dịch cứng nhắc theo từng chữ.
+2. ĐỘ NÉN DUBBING: Câu dịch phải súc tích, ưu tiên từ Hán-Việt để độ dài âm tiết tương đương tiếng Trung, giúp lồng tiếng không bị nhanh hay hụt hơi.
+3. TỰ NHIÊN: Có thể pha chút hóm hỉnh nhẹ nhàng nếu ngữ cảnh cho phép, nhưng phải nhã nhặn, không dùng từ lóng hiện đại quá đà gây cảm giác gượng ép.
+4. CẤU TRÚC: Trả về chính xác {expected_count} đoạn SRT. KHÔNG GỘP đoạn, giữ nguyên mốc thời gian.
+
+DANH SÁCH THUẬT NGỮ:
 {glossary}
 
-TIÊU CHUẨN DỊCH THUẬT QUYẾT ĐỊNH:
-1. TRAU CHUỐT & DỄ HIỂU: Ngôn từ phải thanh thoát, thoát ý, không được dịch kiểu máy móc từ-sang-từ. Câu văn phải xuôi tai người Việt nhưng vẫn giữ chất cổ phong.
-2. ĐỘ NÉN DUBBING: Phải đảm bảo số âm tiết sau khi dịch tương đương với tiếng Trung để khớp miệng nhân vật (Dubbing-ready). Sử dụng từ Hán-Việt để cô đọng nội dung tối đa.
-3. GIA VỊ HÀI HƯỚC: Pha trộn sự hóm hỉnh, 'cà khịa' duyên dáng vào lời thoại để tăng tính giải trí, nhưng tuyệt đối không làm mất đi khí chất của nhân vật. Xưng hô linh hoạt: Ta, Ngươi, Bổn tọa, Lão phu, Huynh đài, Các hạ...
-4. CẤU TRÚC SRT: Trả về ĐÚNG {expected_count} đoạn. KHÔNG ĐỔI mốc thời gian. KHÔNG gộp đoạn. KHÔNG thêm lời chào.
-
-HÃY THI TRIỂN BẢN DỊCH TỐT NHẤT CỦA BẠN:"""
+HÃY DỊCH NỘI DUNG SAU ĐÂY:"""
 
         response = client.models.generate_content(
             model=model_name, 
-            contents=f"{sys_prompt}\n\nCONTENT SRT:\n{text_data}",
+            contents=f"{sys_prompt}\n\nCONTENT:\n{text_data}",
             config=types.GenerateContentConfig(
-                temperature=0.3, # Giữ độ ổn định cao nhưng vẫn cho phép AI biến hóa ngôn từ
+                temperature=0.25, # Giảm nhiệt độ để tránh AI "chém gió" quá đà gây gượng
                 safety_settings=[{"category": c, "threshold": "BLOCK_NONE"} for c in [
                     "HARM_CATEGORY_HARASSMENT", "HARM_CATEGORY_HATE_SPEECH", 
                     "HARM_CATEGORY_SEXUALLY_EXPLICIT", "HARM_CATEGORY_DANGEROUS_CONTENT"
@@ -120,29 +102,21 @@ HÃY THI TRIỂN BẢN DỊCH TỐT NHẤT CỦA BẠN:"""
     except Exception as e: return f"ERR_SYS: {str(e)}"
 
 # =========================================================
-# GIAO DIỆN (SIDEBAR & TABS)
+# GIAO DIỆN (GIỮ NGUYÊN BỐ CỤC)
 # =========================================================
 with st.sidebar:
-    st.title("🔱 THIÊN QUÂN v72.3")
+    st.title("🔱 THIÊN QUÂN v72.4")
     file = st.file_uploader("📜 Nạp bí tịch (.srt)", type=["srt"])
-    model_choice = st.selectbox("🔮 Chọn Pháp Bảo (Model)", 
-                               [ "gemini-3.1-flash-lite-preview","gemini-3-flash-preview", "gemini-2.5-flash"],
-                               index=0)
-    b_size = st.number_input("Số đoạn/Lô", 10, 100, 50)
-    c_time = st.number_input("Giây nghỉ/Key", 5, 60, 15)
+    model_choice = st.selectbox("🔮 Model", ["gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-2.5-flash"], index=0)
+    st.divider()
     n_workers = st.slider("Số luồng xử lý", 1, 10, 5)
+    c_time = st.number_input("Giây nghỉ/Key", 5, 60, 15)
+    b_size = st.number_input("Số đoạn/Lô", 10, 100, 50)
 
 tab1, tab2 = st.tabs(["📝 LINH NHÃN (TỪ ĐIỂN)", "⚔️ KHAI TRẬN"])
 
 with tab1:
-    st.markdown("#### 🏺 Linh Nhãn")
-    if file and st.button("🔍 QUÉT TÊN NHÂN VẬT", type="primary", use_container_width=True):
-        raw_scan = file.getvalue().decode("utf-8-sig", errors="replace")
-        scan_key = next((manager[i]["key"] for i in manager if manager[i]["status"] == "ACTIVE"), VALID_KEYS[0])
-        with st.spinner("Đang soi xét..."):
-            st.session_state.glossary = call_gemini_scan(scan_key, raw_scan, model_choice)
-        st.rerun()
-    st.session_state.glossary = st.text_area("Bảng đối chiếu (Gốc: Dịch):", value=st.session_state.glossary, height=350)
+    st.session_state.glossary = st.text_area("Từ điển đối chiếu:", value=st.session_state.glossary, height=350)
 
 with tab2:
     col_keys, col_workers = st.columns([1, 2.5])
@@ -154,7 +128,7 @@ with tab2:
         w_places = [st.empty() for _ in range(n_workers)]
         st.divider()
         p_bar = st.progress(0); p_text = st.empty()
-        start_btn = st.button("🚀 BẮT ĐẦU DỊCH (TRAU CHUỐT & KHỚP MIỆNG)", use_container_width=True, type="primary")
+        start_btn = st.button("🚀 BẮT ĐẦU DỊCH (TỰ NHIÊN & KHỚP MIỆNG)", use_container_width=True, type="primary")
 
 def refresh_ui(worker_map):
     now = datetime.now()
@@ -212,7 +186,6 @@ if 'start_btn' in locals() and start_btn and file:
                         with worker_status_lock: worker_map[worker_id] = {"msg": f"Lô {batch_idx+1}: ✅ Xong", "style": "w-done"}
                         return "OK"
                     else:
-                        if "429" in res: manager[cur_k]["status"] = "DEAD"
                         time.sleep(2)
 
         with ThreadPoolExecutor(max_workers=n_workers) as executor:
@@ -222,11 +195,11 @@ if 'start_btn' in locals() and start_btn and file:
             while stats["done"] < total:
                 refresh_ui(worker_map)
                 p_bar.progress(stats["done"] / total)
-                p_text.info(f"Tiến độ: {stats['done']}/{total} lô. Đang sử dụng: {model_choice}")
+                p_text.info(f"Tiến độ: {stats['done']}/{total} lô. Sử dụng: {model_choice}")
                 time.sleep(0.5)
 
         final_srt = "\n\n".join([results[i] for i in sorted(results.keys())])
-        st.success(f"🎉 Hoàn tất bí tịch v72.3!")
-        st.download_button(f"📥 TẢI BẢN DỊCH TRAU CHUỐT", final_srt, file_name=f"V72_3_{file.name}", use_container_width=True)
+        st.success(f"🎉 Đã hoàn thành bí tịch v72.4!")
+        st.download_button(f"📥 TẢI BẢN DỊCH TỰ NHIÊN", final_srt, file_name=f"V72_4_{file.name}", use_container_width=True)
 
     except Exception as e: st.error(f"Sụp đổ: {e}")
