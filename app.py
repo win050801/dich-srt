@@ -24,9 +24,9 @@ except:
     pass
 
 # =========================================================
-# GIAO DIỆN (GIỮ NGUYÊN PHONG CÁCH v71.7)
+# GIAO DIỆN (GIỮ NGUYÊN PHONG CÁCH v72.5)
 # =========================================================
-st.set_page_config(page_title="Donghua v72.5 - Quy Nguyên", page_icon="🔱", layout="wide")
+st.set_page_config(page_title="Donghua v72.6 - Truy Phong", page_icon="🔱", layout="wide")
 
 st.markdown("""
     <style>
@@ -68,20 +68,21 @@ status_lock = threading.Lock()
 worker_status_lock = threading.Lock()
 
 # =========================================================
-# ⚔️ PHẦN DUY NHẤT ĐƯỢC TỐI ƯU (PROMPT)
+# ⚔️ PHẦN TỐI ƯU LINH NHÃN (CHỈ LẤY THÔNG TIN CỐT LÕI)
 # =========================================================
 def call_gemini_scan(api_key, text_data, model_name):
     try:
         client = genai.Client(api_key=api_key)
-        # PROMPT QUÉT Tên: Nhắm thẳng vào Hán Việt trau chuốt
+        # PROMPT LINH NHÃN MỚI: Chỉ lấy Tên, Cảnh giới, Địa danh. Không dịch câu.
         prompt = (
-            "Phân tích SRT Donghua này. Hãy liệt kê các Nhân vật, Địa danh, Công pháp chính. "
-            "Dịch sang tiếng Việt phong cách Hán-Việt chuẩn mực và nhã nhặn. "
-            "Định dạng: 'Gốc: Hán Việt'. Không thêm lời chào hay giải thích."
+            "Analyze this Chinese SRT. ONLY extract: Character Names, Cultivation Ranks, and Locations. "
+            "Translate them to Vietnamese Hán-Việt. "
+            "Format: 'Original: Vietnamese'. "
+            "No sentences, no explanations, no duplicate entries. Focus ONLY on entities."
         )
         response = client.models.generate_content(
             model=model_name,
-            contents=f"{prompt}\n\nNỘI DUNG:\n{text_data[:35000]}"
+            contents=f"{prompt}\n\nCONTENT:\n{text_data[:35000]}"
         )
         return response.text.strip() if response.text else ""
     except Exception as e: return f"Lỗi quét: {str(e)}"
@@ -89,7 +90,6 @@ def call_gemini_scan(api_key, text_data, model_name):
 def call_gemini_translate(api_key, text_data, expected_count, glossary, model_name):
     try:
         client = genai.Client(api_key=api_key)
-        # PROMPT DỊCH: Kết hợp Trau chuốt + Khớp miệng + Hài hước nhẹ
         sys_prompt = f"""Bạn là bậc thầy biên kịch lồng tiếng cho Donghua. 
 Nhiệm vụ: Dịch {expected_count} đoạn SRT sau sang tiếng Việt phong cách Tiên Hiệp/Kiếm Hiệp.
 
@@ -99,7 +99,7 @@ DANH SÁCH THUẬT NGỮ CỐ ĐỊNH:
 TIÊU CHUẨN VÀNG:
 1. TRAU CHUỐT: Văn phong thoát ý, nhã nhặn, dễ hiểu nhưng đậm chất cổ phong.
 2. KHỚP MIỆNG (DUBBING): Câu dịch phải có số âm tiết tương đương tiếng Trung. Dùng từ Hán-Việt để nén nghĩa tối đa cho lồng tiếng.
-3. HÀI HƯỚC: Pha trộn sự dí dỏm, 'cà khịa' duyên dáng vào lời thoại nếu ngữ cảnh cho phép. Xưng hô chuẩn mực: Ta, Ngươi, Lão phu, Bổn tọa, Các hạ...
+3. HÀI HƯỚC: Pha trộn sự dí dỏm, 'cà khịa' duyên dáng vào lời thoại. Xưng hô chuẩn mực: Ta, Ngươi, Lão phu, Bổn tọa, Các hạ...
 4. ĐỊNH DẠNG: Trả về ĐÚNG {expected_count} đoạn SRT. KHÔNG đổi mốc thời gian, KHÔNG gộp đoạn.
 
 NỘI DUNG CẦN THI TRIỂN:"""
@@ -108,7 +108,7 @@ NỘI DUNG CẦN THI TRIỂN:"""
             model=model_name, 
             contents=f"{sys_prompt}\n\n{text_data}",
             config=types.GenerateContentConfig(
-                temperature=0.3, # Đủ để AI biến hóa ngôn từ mà không mất định dạng
+                temperature=0.3,
                 safety_settings=[{"category": c, "threshold": "BLOCK_NONE"} for c in [
                     "HARM_CATEGORY_HARASSMENT", "HARM_CATEGORY_HATE_SPEECH", 
                     "HARM_CATEGORY_SEXUALLY_EXPLICIT", "HARM_CATEGORY_DANGEROUS_CONTENT"
@@ -121,12 +121,12 @@ NỘI DUNG CẦN THI TRIỂN:"""
     except Exception as e: return f"ERR_SYS: {str(e)}"
 
 # =========================================================
-# GIAO DIỆN (GIỮ NGUYÊN NÚT BẤM & TABS CỦA v71.7)
+# GIAO DIỆN
 # =========================================================
 with st.sidebar:
-    st.title("🔱 THIÊN QUÂN v72.5")
+    st.title("🔱 THIÊN QUÂN v72.6")
     file = st.file_uploader("📜 Nạp bí tịch (.srt)", type=["srt"])
-    model_choice = st.selectbox("🔮 Chọn Pháp Bảo (Model)", ["gemini-3.1-flash-lite-preview", "gemini-3-flash-preview"], index=0)
+    model_choice = st.selectbox("🔮 Chọn Model", ["gemini-3.1-flash-lite-preview", "gemini-3-flash-preview"], index=0)
     b_size = st.number_input("Số đoạn/Lô", 10, 100, 50)
     c_time = st.number_input("Giây nghỉ/Key", 5, 60, 15)
     n_workers = st.slider("Số luồng xử lý", 1, 10, 5)
@@ -134,27 +134,29 @@ with st.sidebar:
 tab1, tab2 = st.tabs(["📝 LINH NHÃN (TỪ ĐIỂN)", "⚔️ KHAI TRẬN"])
 
 with tab1:
-    st.markdown("#### 🏺 Linh Nhãn (Tìm kiếm danh tính)")
-    # NÚT BẤM CỦA ĐẠI HIỆP ĐÃ PHỤC VỊ
+    st.markdown("#### 🏺 Linh Nhãn (Quét tên nhân vật & cảnh giới)")
     if file and st.button("🔍 QUÉT TOÀN BỘ FILE", type="primary", use_container_width=True):
         raw_scan = file.getvalue().decode("utf-8-sig", errors="replace")
         scan_key = next((manager[i]["key"] for i in manager if manager[i]["status"] == "ACTIVE"), VALID_KEYS[0])
-        with st.spinner("Đang soi xét danh tính..."):
+        with st.spinner("Đang trích xuất danh tính..."):
             st.session_state.glossary = call_gemini_scan(scan_key, raw_scan, model_choice)
         st.rerun()
-    st.session_state.glossary = st.text_area("Bảng đối chiếu (Sửa trực tiếp):", value=st.session_state.glossary, height=350)
+    st.session_state.glossary = st.text_area("Bảng đối chiếu (Gốc: Dịch):", value=st.session_state.glossary, height=350)
 
 with tab2:
-    col_keys, col_workers = st.columns([1, 2.5])
-    with col_keys:
-        st.markdown("#### 📡 Linh Thạch")
-        k_places = [st.empty() for _ in range(len(VALID_KEYS))]
-    with col_workers:
-        st.markdown("#### 🌊 Luồng Xử Lý")
-        w_places = [st.empty() for _ in range(n_workers)]
-        st.divider()
-        p_bar = st.progress(0); p_text = st.empty()
-        start_btn = st.button("⚔️ BẮT ĐẦU KHAI TRẬN", use_container_width=True, type="primary")
+    if not file:
+        st.info("💡 Hãy nạp file ở Sidebar.")
+    else:
+        col_keys, col_workers = st.columns([1, 2.5])
+        with col_keys:
+            st.markdown("#### 📡 Linh Thạch")
+            k_places = [st.empty() for _ in range(len(VALID_KEYS))]
+        with col_workers:
+            st.markdown("#### 🌊 Luồng Xử Lý")
+            w_places = [st.empty() for _ in range(n_workers)]
+            st.divider()
+            p_bar = st.progress(0); p_text = st.empty()
+            start_btn = st.button("⚔️ BẮT ĐẦU KHAI TRẬN", use_container_width=True, type="primary")
 
 def refresh_ui(worker_map):
     now = datetime.now()
@@ -170,9 +172,6 @@ def refresh_ui(worker_map):
         info = worker_map.get(i, {"msg": "Đang chờ...", "style": "w-idle"})
         w_places[i].markdown(f"<div class='w-box {info['style']}'><b>Worker {i+1}</b>: {info['msg']}</div>", unsafe_allow_html=True)
 
-# =========================================================
-# LUỒNG VẬN HÀNH (GIỮ NGUYÊN LOGIC v71.7)
-# =========================================================
 if 'start_btn' in locals() and start_btn and file:
     try:
         raw = file.getvalue().decode("utf-8-sig", errors="replace").strip()
@@ -215,10 +214,9 @@ if 'start_btn' in locals() and start_btn and file:
             while stats["done"] < total:
                 refresh_ui(worker_map)
                 p_bar.progress(stats["done"] / total)
-                p_text.info(f"Tiến độ: {stats['done']}/{total} lô.")
                 time.sleep(0.5)
 
         final_srt = "\n\n".join([results[i] for i in sorted(results.keys())])
-        st.success(f"🎉 Bí tịch v72.5 đã hoàn thành hoàn mỹ!")
-        st.download_button(f"📥 TẢI BẢN DỊCH TỐI ƯU", final_srt, file_name=f"V72_5_{file.name}", use_container_width=True)
+        st.success(f"🎉 Bí tịch v72.6 đã hoàn thành!")
+        st.download_button(f"📥 TẢI BẢN DỊCH", final_srt, file_name=f"V72_6_{file.name}", use_container_width=True)
     except Exception as e: st.error(f"Sụp đổ: {e}")
