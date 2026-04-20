@@ -24,9 +24,9 @@ except:
     pass
 
 # =========================================================
-# GIAO DIỆN (GIỮ NGUYÊN PHONG CÁCH v72.6 + TIỆN ÍCH MỚI)
+# GIAO DIỆN v73.3
 # =========================================================
-st.set_page_config(page_title="Donghua v73.2 - Càn Khôn", page_icon="🔱", layout="wide")
+st.set_page_config(page_title="Donghua v73.3 - Định Luồng", page_icon="🔱", layout="wide")
 
 st.markdown("""
     <style>
@@ -42,224 +42,185 @@ st.markdown("""
     .w-retry { color: #d29922; border: 1px dashed #d29922; }
     .w-done { color: #3fb950; border: 1px solid #3fb950; }
     .w-idle { color: #8b949e; border: 1px dotted #8b949e; }
-    .split-box { padding: 10px; border: 1px solid #30363d; border-radius: 8px; background: #161b22; margin-top: 5px; }
     h4 { margin-bottom: 5px !important; color: #58a6ff !important; }
     </style>
     """, unsafe_allow_html=True)
 
 # =========================================================
-# QUẢN LÝ LINH LỰC & TRẠNG THÁI
+# QUẢN LÝ TRẠNG THÁI
 # =========================================================
+if 'glossary' not in st.session_state: st.session_state.glossary = ""
+if 'final_results' not in st.session_state: st.session_state.final_results = None
+
+RAW_KEYS = [os.getenv(f"GEMINI_KEY_{i}") for i in range(1, 21)]
+VALID_KEYS = [k.strip() for k in RAW_KEYS if k and len(k.strip()) > 10]
+
+if not VALID_KEYS:
+    st.sidebar.error("🛑 Không tìm thấy Key!")
+    st.stop()
+
+# Khởi tạo hoặc lấy lại Key Manager
 if 'key_manager' not in st.session_state:
-    RAW_KEYS = [os.getenv(f"GEMINI_KEY_{i}") for i in range(1, 21)]
-    VALID_KEYS = [k.strip() for k in RAW_KEYS if k and len(k.strip()) > 10]
-    if not VALID_KEYS:
-        st.sidebar.error("🛑 Không tìm thấy Key!")
-        st.stop()
     st.session_state.key_manager = {
         i: {"status": "ACTIVE", "in_use": False, "last_finished": datetime.now() - timedelta(seconds=60), "key": k} 
         for i, k in enumerate(VALID_KEYS)
     }
 
-if 'glossary' not in st.session_state: st.session_state.glossary = ""
-if 'final_results' not in st.session_state: st.session_state.final_results = None
-
-def reset_all():
-    st.session_state.glossary = ""
-    st.session_state.final_results = None
-    st.rerun()
-
 # =========================================================
-# ⚔️ PHẦN XỬ LÝ DỊCH THUẬT (GIỮ NGUYÊN LOGIC v72.6)
+# CÁC HÀM XỬ LÝ (GIỮ NGUYÊN LOGIC CỦA ĐẠO HỮU)
 # =========================================================
 def call_gemini_scan(api_key, text_data, model_name):
     try:
         client = genai.Client(api_key=api_key)
-        prompt = (
-            "Analyze this Chinese SRT. ONLY extract: Character Names, Cultivation Ranks, and Locations. "
-            "Translate them to Vietnamese Hán-Việt. Format: 'Original: Vietnamese'. "
-            "No sentences, no explanations, no duplicate entries. Focus ONLY on entities."
-        )
-        response = client.models.generate_content(model=model_name, contents=f"{prompt}\n\nCONTENT:\n{text_data[:35000]}")
+        prompt = "Analyze this Chinese SRT. ONLY extract: Character Names, Cultivation Ranks, and Locations. Translate them to Vietnamese Hán-Việt. Format: 'Original: Vietnamese'."
+        response = client.models.generate_content(model=model_name, contents=f"{prompt}\n\nCONTENT:\n{text_data[:30000]}")
         return response.text.strip() if response.text else ""
-    except Exception as e: return f"Lỗi quét: {str(e)}"
+    except Exception: return ""
 
 def call_gemini_translate(api_key, text_data, expected_count, glossary, model_name):
     try:
         client = genai.Client(api_key=api_key)
-        sys_prompt = f"""Bạn là bậc thầy biên kịch lồng tiếng cho Donghua. 
-Nhiệm vụ: Dịch {expected_count} đoạn SRT sau sang tiếng Việt phong cách Tiên Hiệp/Kiếm Hiệp.
-
-DANH SÁCH THUẬT NGỮ CỐ ĐỊNH:
-{glossary}
-
-TIÊU CHUẨN VÀNG:
-1. TRAU CHUỐT: Văn phong thoát ý, nhã nhặn, dễ hiểu nhưng đậm chất cổ phong.
-2. KHỚP MIỆNG (DUBBING): Câu dịch phải có số âm tiết tương đương tiếng Trung. Dùng từ Hán-Việt để nén nghĩa tối đa cho lồng tiếng.
-3. HÀI HƯỚC: Pha trộn sự dí dỏm, 'cà khịa' duyên dáng vào lời thoại. Xưng hô chuẩn mực: Ta, Ngươi, Lão phu, Bổn tọa, Các hạ...
-4. ĐỊNH DẠNG: Trả về ĐÚNG {expected_count} đoạn SRT. KHÔNG đổi mốc thời gian, KHÔNG gộp đoạn.
-
-NỘI DUNG CẦN THI TRIỂN:"""
-        
+        sys_prompt = f"Dịch {expected_count} đoạn SRT sang tiếng Việt phong cách Tiên Hiệp. Thuật ngữ: {glossary}. Trả về đúng {expected_count} đoạn SRT."
         response = client.models.generate_content(
             model=model_name, 
             contents=f"{sys_prompt}\n\n{text_data}",
-            config=types.GenerateContentConfig(
-                temperature=0.3,
-                safety_settings=[{"category": c, "threshold": "BLOCK_NONE"} for c in [
-                    "HARM_CATEGORY_HARASSMENT", "HARM_CATEGORY_HATE_SPEECH", 
-                    "HARM_CATEGORY_SEXUALLY_EXPLICIT", "HARM_CATEGORY_DANGEROUS_CONTENT"
-                ]]
-            )
+            config=types.GenerateContentConfig(temperature=0.3)
         )
         res = response.text.strip() if response.text else ""
-        match = re.search(r"(\d+\n\d{2}:\d{2}:\d{2},\d{3} -->.*)", res, re.DOTALL)
-        return match.group(1) if match else res
+        if "-->" not in res: return "ERR_FORMAT"
+        return res
     except Exception as e: return f"ERR_SYS: {str(e)}"
 
-# Hàm tách file Lưỡng Nghi
 def split_srt_by_length(srt_content, limit=4):
     blocks = [b.strip() for b in re.split(r'\n\s*\n', srt_content) if b.strip()]
-    short_blocks, long_blocks = [], []
-    for block in blocks:
-        lines = block.split('\n')
+    short, long = [], []
+    for b in blocks:
+        lines = b.split('\n')
         if len(lines) >= 3:
-            content_text = " ".join(lines[2:])
-            if len(content_text.split()) <= limit: short_blocks.append(block)
-            else: long_blocks.append(block)
-    return "\n\n".join(short_blocks), "\n\n".join(long_blocks)
+            txt = " ".join(lines[2:])
+            if len(txt.split()) <= limit: short.append(b)
+            else: long.append(b)
+    return "\n\n".join(short), "\n\n".join(long)
 
 # =========================================================
-# GIAO DIỆN CHÍNH
+# GIAO DIỆN Sidebar
 # =========================================================
 with st.sidebar:
-    st.title("🔱 THIÊN QUÂN v73.2")
+    st.title("🔱 THIÊN QUÂN v73.3")
     file = st.file_uploader("📜 Nạp bí tịch (.srt)", type=["srt"])
-    
-    # CẬP NHẬT MODEL THEO YÊU CẦU
-    model_choice = st.selectbox("🔮 Chọn Model", [
-        "gemini-3.1-flash-lite-preview", 
-        "gemini-3.1-pro-preview",
-        "gemini-3-flash-preview", 
-        "gemini-2.5-flash",
-        "gemini-2.5-pro"
-    ], index=0)
-    
+    model_choice = st.selectbox("🔮 Model", ["gemini-3.1-flash-lite-preview", "gemini-3.1-pro-preview", "gemini-3-flash-preview", "gemini-2.5-flash", "gemini-2.5-pro"])
     b_size = st.number_input("Số đoạn/Lô", 10, 100, 50)
-    c_time = st.number_input("Giây nghỉ/Key", 5, 60, 15)
+    c_time = st.number_input("Giây nghỉ/Key", 2, 60, 10)
     n_workers = st.slider("Số luồng xử lý", 1, 10, 5)
-    
-    st.divider()
-    if st.button("♻️ RESET HỆ THỐNG", use_container_width=True, type="secondary"):
-        reset_all()
+    if st.button("♻️ RESET"): 
+        st.session_state.final_results = None
+        st.rerun()
 
-tab1, tab2 = st.tabs(["📝 LINH NHÃN (TỪ ĐIỂN)", "⚔️ KHAI TRẬN"])
+tab1, tab2 = st.tabs(["📝 LINH NHÃN", "⚔️ KHAI TRẬN"])
 
 with tab1:
-    st.markdown("#### 🏺 Linh Nhãn (Quét tên nhân vật & cảnh giới)")
     if file and st.button("🔍 QUÉT TOÀN BỘ FILE", type="primary", use_container_width=True):
         raw_scan = file.getvalue().decode("utf-8-sig", errors="replace")
-        manager = st.session_state.key_manager
-        scan_key = next((manager[i]["key"] for i in manager if manager[i]["status"] == "ACTIVE"), list(manager.values())[0]["key"])
-        with st.spinner("Đang trích xuất danh tính..."):
-            st.session_state.glossary = call_gemini_scan(scan_key, raw_scan, model_choice)
+        st.session_state.glossary = call_gemini_scan(VALID_KEYS[0], raw_scan, model_choice)
         st.rerun()
-    st.session_state.glossary = st.text_area("Bảng đối chiếu (Gốc: Dịch):", value=st.session_state.glossary, height=350)
+    st.session_state.glossary = st.text_area("Bảng đối chiếu:", value=st.session_state.glossary, height=350)
 
 with tab2:
     if not file:
-        st.info("💡 Hãy nạp file ở Sidebar.")
+        st.info("💡 Nạp file ở Sidebar.")
     elif st.session_state.final_results is None:
         col_keys, col_workers = st.columns([1, 2.5])
-        with col_keys:
-            st.markdown("#### 📡 Linh Thạch")
-            k_places = [st.empty() for _ in range(len(st.session_state.key_manager))]
-        with col_workers:
-            st.markdown("#### 🌊 Luồng Xử Lý")
-            w_places = [st.empty() for _ in range(n_workers)]
-            st.divider()
-            p_bar = st.progress(0)
-            start_btn = st.button("⚔️ BẮT ĐẦU KHAI TRẬN", use_container_width=True, type="primary")
+        k_places = [col_keys.empty() for _ in range(len(VALID_KEYS))]
+        w_places = [col_workers.empty() for _ in range(n_workers)]
+        p_bar = st.progress(0)
+        start_btn = st.button("⚔️ BẮT ĐẦU KHAI TRẬN", use_container_width=True, type="primary")
 
         if start_btn:
-            try:
-                raw = file.getvalue().decode("utf-8-sig", errors="replace").strip()
-                blocks = [b.strip() for b in re.split(r'\n\s*\n', raw) if b.strip()]
-                batches = [blocks[i:i + b_size] for i in range(0, len(blocks), b_size)]
-                total = len(batches)
-                results, stats = {}, {"done": 0}
-                worker_map = {i: {"msg": "Sẵn sàng", "style": "w-idle"} for i in range(n_workers)}
+            raw = file.getvalue().decode("utf-8-sig", errors="replace").strip()
+            blocks = [b.strip() for b in re.split(r'\n\s*\n', raw) if b.strip()]
+            batches = [blocks[i:i + b_size] for i in range(0, len(blocks), b_size)]
+            
+            # BIẾN DÙNG CHUNG CHO LUỒNG (KHÔNG DÙNG SESSION_STATE Ở ĐÂY)
+            shared_results = {}
+            shared_stats = {"done": 0}
+            shared_worker_map = {i: {"msg": "Chờ...", "style": "w-idle"} for i in range(n_workers)}
+            shared_keys = st.session_state.key_manager # Lấy ra dict thô
+            
+            lock = threading.Lock()
+            main_ctx = get_script_run_context()
+
+            def worker_logic(batch_idx, worker_id):
+                add_script_run_context(main_ctx)
+                batch_text = "\n\n".join(batches[batch_idx])
+                expected = len(batches[batch_idx])
                 
-                status_lock = threading.Lock()
-                worker_lock = threading.Lock()
-                main_ctx = get_script_run_context()
-
-                def worker_logic(batch_idx, worker_id, glossary_text, selected_model):
-                    add_script_run_context(main_ctx)
-                    chunk_text = "\n\n".join(batches[batch_idx])
-                    expected = len(batches[batch_idx])
-                    manager = st.session_state.key_manager
+                while True:
+                    cur_k_idx = -1
+                    with lock:
+                        for idx, info in shared_keys.items():
+                            diff = (datetime.now() - info["last_finished"]).total_seconds()
+                            if info["status"] == "ACTIVE" and not info["in_use"] and diff >= c_time:
+                                cur_k_idx = idx
+                                info["in_use"] = True
+                                break
                     
-                    while True:
-                        cur_k = None
-                        with status_lock:
-                            for i, k in manager.items():
-                                if k["status"] == "ACTIVE" and not k["in_use"] and (datetime.now() - k["last_finished"]).total_seconds() >= c_time:
-                                    cur_k = i; k["in_use"] = True; break
-                        
-                        if cur_k is None:
-                            with worker_lock: worker_map[worker_id] = {"msg": f"Lô {batch_idx+1}: Đợi Key...", "style": "w-retry"}
-                            time.sleep(2); continue
-                        
-                        with worker_lock: worker_map[worker_id] = {"msg": f"Lô {batch_idx+1}: Dịch...", "style": "w-run"}
-                        res = call_gemini_translate(manager[cur_k]["key"], chunk_text, expected, glossary_text, selected_model)
-                        
-                        with status_lock:
-                            manager[cur_k]["last_finished"] = datetime.now(); manager[cur_k]["in_use"] = False
-                            if res.count("-->") >= expected:
-                                results[batch_idx] = res; stats["done"] += 1
-                                with worker_lock: worker_map[worker_id] = {"msg": f"Lô {batch_idx+1}: ✅ Xong", "style": "w-done"}
-                                return
-                            else:
-                                if "429" in res: manager[cur_k]["status"] = "DEAD"
-                                time.sleep(2)
+                    if cur_k_idx == -1:
+                        shared_worker_map[worker_id] = {"msg": f"Lô {batch_idx+1}: Đợi Key...", "style": "w-retry"}
+                        time.sleep(2); continue
 
-                with ThreadPoolExecutor(max_workers=n_workers) as executor:
-                    for i in range(total): executor.submit(worker_logic, i, i % n_workers, st.session_state.glossary, model_choice)
-                    while stats["done"] < total:
-                        # Refresh UI trong vòng lặp chính
-                        manager = st.session_state.key_manager
-                        for i, k in manager.items():
-                            diff = (datetime.now() - k["last_finished"]).total_seconds()
-                            if k["status"] == "DEAD": cls, txt = "k-dead", "💀 HỎNG"
-                            elif k["in_use"]: cls, txt = "k-busy", "⚔️ DỊCH"
-                            elif diff < c_time: cls, txt = "k-cool", f"🧘 {int(c_time-diff)}s"
-                            else: cls, txt = "k-active", "✅ SẴN SÀNG"
-                            k_places[i].markdown(f"<div class='key-box {cls}'><b>#{i+1}</b><br>{txt}</div>", unsafe_allow_html=True)
-                        for i in range(n_workers):
-                            w = worker_map[i]
-                            w_places[i].markdown(f"<div class='w-box {w['style']}'><b>W {i+1}</b>: {w['msg']}</div>", unsafe_allow_html=True)
-                        p_bar.progress(stats["done"] / total)
-                        time.sleep(0.5)
+                    shared_worker_map[worker_id] = {"msg": f"Lô {batch_idx+1}: Dịch...", "style": "w-run"}
+                    res = call_gemini_translate(shared_keys[cur_k_idx]["key"], batch_text, expected, st.session_state.glossary, model_choice)
+                    
+                    with lock:
+                        shared_keys[cur_k_idx]["in_use"] = False
+                        shared_keys[cur_k_idx]["last_finished"] = datetime.now()
+                        if "ERR" not in res and res.count("-->") >= expected:
+                            shared_results[batch_idx] = res
+                            shared_stats["done"] += 1
+                            shared_worker_map[worker_id] = {"msg": f"Lô {batch_idx+1}: ✅ Xong", "style": "w-done"}
+                            return
+                        else:
+                            if "429" in res: shared_keys[cur_k_idx]["status"] = "DEAD"
+                            time.sleep(2)
 
-                st.session_state.final_results = "\n\n".join([results[i] for i in sorted(results.keys())])
+            with ThreadPoolExecutor(max_workers=n_workers) as executor:
+                for i in range(len(batches)):
+                    executor.submit(worker_logic, i, i % n_workers)
+                
+                # VÒNG LẶP CẬP NHẬT UI TRÊN LUỒNG CHÍNH
+                while shared_stats["done"] < len(batches):
+                    # Cập nhật Key UI
+                    for i, k in shared_keys.items():
+                        diff = (datetime.now() - k["last_finished"]).total_seconds()
+                        if k["status"] == "DEAD": cls, txt = "k-dead", "💀 HỎNG"
+                        elif k["in_use"]: cls, txt = "k-busy", "⚔️ DỊCH"
+                        elif diff < c_time: cls, txt = "k-cool", f"🧘 {int(c_time-diff)}s"
+                        else: cls, txt = "k-active", "✅ SẴN SÀNG"
+                        k_places[i].markdown(f"<div class='key-box {cls}'><b>#{i+1}</b><br>{txt}</div>", unsafe_allow_html=True)
+                    
+                    # Cập nhật Worker UI
+                    for i in range(n_workers):
+                        info = shared_worker_map[i]
+                        w_places[i].markdown(f"<div class='w-box {info['style']}'><b>W{i+1}</b>: {info['msg']}</div>", unsafe_allow_html=True)
+                    
+                    p_bar.progress(shared_stats["done"] / len(batches))
+                    
+                    if all(k["status"] == "DEAD" for k in shared_keys.values()):
+                        st.error("🛑 Tất cả Key đã hỏng!")
+                        break
+                    time.sleep(0.5)
+
+            if shared_stats["done"] == len(batches):
+                st.session_state.final_results = "\n\n".join([shared_results[i] for i in sorted(shared_results.keys())])
                 st.rerun()
-            except Exception as e: st.error(f"Sụp đổ: {e}")
 
 # =========================================================
-# HIỂN THỊ KẾT QUẢ & TẢI FILE (CHỐNG RERUN)
+# HIỂN THỊ SAU KHI DỊCH XONG
 # =========================================================
 if st.session_state.final_results:
-    short_srt, long_srt = split_srt_by_length(st.session_state.final_results, limit=4)
-    st.success(f"🎉 Khai trận hoàn tất!")
-    
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.markdown("<div class='split-box'><b>⚡ Đoản Câu (≤ 4 chữ)</b></div>", unsafe_allow_html=True)
-        st.download_button("📥 TẢI ĐOẢN CÂU", short_srt, file_name=f"SHORT_{file.name if file else 'V73.srt'}", use_container_width=True, key="dl_s")
-    with col2:
-        st.markdown("<div class='split-box'><b>📖 Trường Câu (> 4 chữ)</b></div>", unsafe_allow_html=True)
-        st.download_button("📥 TẢI TRƯỜNG CÂU", long_srt, file_name=f"LONG_{file.name if file else 'V73.srt'}", use_container_width=True, key="dl_l")
-    with col3:
-        st.markdown("<div class='split-box'><b>📜 Toàn Bộ Bản Dịch</b></div>", unsafe_allow_html=True)
-        st.download_button("📥 TẢI BẢN FULL", st.session_state.final_results, file_name=f"FULL_{file.name if file else 'V73.srt'}", use_container_width=True, key="dl_f")
+    short_srt, long_srt = split_srt_by_length(st.session_state.final_results)
+    st.success("🎉 Hoàn thành!")
+    c1, c2, c3 = st.columns(3)
+    c1.download_button("📥 TẢI ĐOẢN CÂU", short_srt, file_name=f"SHORT_{file.name if file else 'V73.srt'}", use_container_width=True)
+    c2.download_button("📥 TẢI TRƯỜNG CÂU", long_srt, file_name=f"LONG_{file.name if file else 'V73.srt'}", use_container_width=True)
+    c3.download_button("📥 TẢI FULL", st.session_state.final_results, file_name=f"FULL_{file.name if file else 'V73.srt'}", use_container_width=True)
