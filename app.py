@@ -24,9 +24,9 @@ except:
     pass
 
 # =========================================================
-# GIAO DIỆN (GIỮ NGUYÊN PHONG CÁCH v72.5)
+# GIAO DIỆN (GIỮ NGUYÊN PHONG CÁCH v72.6)
 # =========================================================
-st.set_page_config(page_title="Donghua v72.6 - Truy Phong", page_icon="🔱", layout="wide")
+st.set_page_config(page_title="Donghua v72.7 - Lưỡng Nghi", page_icon="🔱", layout="wide")
 
 st.markdown("""
     <style>
@@ -43,6 +43,7 @@ st.markdown("""
     .w-done { color: #3fb950; border: 1px solid #3fb950; }
     .w-idle { color: #8b949e; border: 1px dotted #8b949e; }
     h4 { margin-bottom: 5px !important; color: #58a6ff !important; }
+    .split-box { padding: 15px; border: 1px solid #30363d; border-radius: 8px; background: #0d1117; margin-top: 10px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -68,22 +69,17 @@ status_lock = threading.Lock()
 worker_status_lock = threading.Lock()
 
 # =========================================================
-# ⚔️ PHẦN TỐI ƯU LINH NHÃN (CHỈ LẤY THÔNG TIN CỐT LÕI)
+# ⚔️ HÀM BỔ TRỢ & DỊCH thuật
 # =========================================================
 def call_gemini_scan(api_key, text_data, model_name):
     try:
         client = genai.Client(api_key=api_key)
-        # PROMPT LINH NHÃN MỚI: Chỉ lấy Tên, Cảnh giới, Địa danh. Không dịch câu.
         prompt = (
             "Analyze this Chinese SRT. ONLY extract: Character Names, Cultivation Ranks, and Locations. "
             "Translate them to Vietnamese Hán-Việt. "
-            "Format: 'Original: Vietnamese'. "
-            "No sentences, no explanations, no duplicate entries. Focus ONLY on entities."
+            "Format: 'Original: Vietnamese'. No sentences, no explanations."
         )
-        response = client.models.generate_content(
-            model=model_name,
-            contents=f"{prompt}\n\nCONTENT:\n{text_data[:35000]}"
-        )
+        response = client.models.generate_content(model=model_name, contents=f"{prompt}\n\nCONTENT:\n{text_data[:35000]}")
         return response.text.strip() if response.text else ""
     except Exception as e: return f"Lỗi quét: {str(e)}"
 
@@ -91,42 +87,49 @@ def call_gemini_translate(api_key, text_data, expected_count, glossary, model_na
     try:
         client = genai.Client(api_key=api_key)
         sys_prompt = f"""Bạn là bậc thầy biên kịch lồng tiếng cho Donghua. 
-Nhiệm vụ: Dịch {expected_count} đoạn SRT sau sang tiếng Việt phong cách Tiên Hiệp/Kiếm Hiệp.
-
-DANH SÁCH THUẬT NGỮ CỐ ĐỊNH:
-{glossary}
-
-TIÊU CHUẨN VÀNG:
-1. TRAU CHUỐT: Văn phong thoát ý, nhã nhặn, dễ hiểu nhưng đậm chất cổ phong.
-2. KHỚP MIỆNG (DUBBING): Câu dịch phải có số âm tiết tương đương tiếng Trung. Dùng từ Hán-Việt để nén nghĩa tối đa cho lồng tiếng.
-3. HÀI HƯỚC: Pha trộn sự dí dỏm, 'cà khịa' duyên dáng vào lời thoại. Xưng hô chuẩn mực: Ta, Ngươi, Lão phu, Bổn tọa, Các hạ...
-4. ĐỊNH DẠNG: Trả về ĐÚNG {expected_count} đoạn SRT. KHÔNG đổi mốc thời gian, KHÔNG gộp đoạn.
-
-NỘI DUNG CẦN THI TRIỂN:"""
+Nhiệm vụ: Dịch {expected_count} đoạn SRT sau sang tiếng Việt phong cách Tiên Hiệp.
+DANH SÁCH THUẬT NGỮ: {glossary}
+TIÊU CHUẨN: Văn phong cổ phong, nén nghĩa tối đa cho khớp miệng, xưng hô Ta - Ngươi chuẩn mực.
+ĐỊNH DẠNG: Trả về ĐÚNG {expected_count} đoạn SRT. KHÔNG đổi mốc thời gian."""
         
         response = client.models.generate_content(
             model=model_name, 
             contents=f"{sys_prompt}\n\n{text_data}",
-            config=types.GenerateContentConfig(
-                temperature=0.3,
-                safety_settings=[{"category": c, "threshold": "BLOCK_NONE"} for c in [
-                    "HARM_CATEGORY_HARASSMENT", "HARM_CATEGORY_HATE_SPEECH", 
-                    "HARM_CATEGORY_SEXUALLY_EXPLICIT", "HARM_CATEGORY_DANGEROUS_CONTENT"
-                ]]
-            )
+            config=types.GenerateContentConfig(temperature=0.3)
         )
         res = response.text.strip() if response.text else ""
         match = re.search(r"(\d+\n\d{2}:\d{2}:\d{2},\d{3} -->.*)", res, re.DOTALL)
         return match.group(1) if match else res
     except Exception as e: return f"ERR_SYS: {str(e)}"
 
+# Hàm Phân Tách Lưỡng Nghi (Mới)
+def split_srt_by_length(srt_content, limit=4):
+    blocks = [b.strip() for b in re.split(r'\n\s*\n', srt_content) if b.strip()]
+    short_blocks = []
+    long_blocks = []
+    
+    for block in blocks:
+        lines = block.split('\n')
+        if len(lines) >= 3:
+            # Lấy toàn bộ nội dung text (có thể có nhiều dòng trong 1 block)
+            content_text = " ".join(lines[2:])
+            # Đếm số từ bằng cách tách khoảng trắng
+            word_count = len(content_text.split())
+            
+            if word_count <= limit:
+                short_blocks.append(block)
+            else:
+                long_blocks.append(block)
+                
+    return "\n\n".join(short_blocks), "\n\n".join(long_blocks)
+
 # =========================================================
-# GIAO DIỆN
+# GIAO DIỆN STREAMLIT
 # =========================================================
 with st.sidebar:
-    st.title("🔱 THIÊN QUÂN v72.6")
+    st.title("🔱 THIÊN QUÂN v72.7")
     file = st.file_uploader("📜 Nạp bí tịch (.srt)", type=["srt"])
-    model_choice = st.selectbox("🔮 Chọn Model", ["gemini-3.1-flash-lite-preview", "gemini-3-flash-preview"], index=0)
+    model_choice = st.selectbox("🔮 Chọn Model", ["gemini-2.0-flash-exp", "gemini-1.5-flash"], index=0)
     b_size = st.number_input("Số đoạn/Lô", 10, 100, 50)
     c_time = st.number_input("Giây nghỉ/Key", 5, 60, 15)
     n_workers = st.slider("Số luồng xử lý", 1, 10, 5)
@@ -197,8 +200,10 @@ if 'start_btn' in locals() and start_btn and file:
                     if not any(k["status"] == "ACTIVE" for k in manager.values()): return "FATAL"
                     with worker_status_lock: worker_map[worker_id] = {"msg": f"Lô {batch_idx+1}: Đợi Key...", "style": "w-retry"}
                     time.sleep(2); continue
+                
                 with worker_status_lock: worker_map[worker_id] = {"msg": f"Lô {batch_idx+1}: Dịch...", "style": "w-run"}
                 res = call_gemini_translate(manager[cur_k]["key"], chunk_text, expected, glossary_text, selected_model)
+                
                 with status_lock:
                     manager[cur_k]["last_finished"] = datetime.now(); manager[cur_k]["in_use"] = False
                     if res.count("-->") >= expected:
@@ -216,7 +221,22 @@ if 'start_btn' in locals() and start_btn and file:
                 p_bar.progress(stats["done"] / total)
                 time.sleep(0.5)
 
+        # HỢP NHẤT VÀ PHÂN TÁCH LƯỠNG NGHI
         final_srt = "\n\n".join([results[i] for i in sorted(results.keys())])
-        st.success(f"🎉 Bí tịch v72.6 đã hoàn thành!")
-        st.download_button(f"📥 TẢI BẢN DỊCH", final_srt, file_name=f"V72_6_{file.name}", use_container_width=True)
+        short_srt, long_srt = split_srt_by_length(final_srt, limit=4)
+
+        st.success(f"🎉 Bí tịch v72.7 đã hoàn thành!")
+        
+        st.markdown("### 📥 TẢI XUỐNG CÁC BẢN PHÂN TÁCH")
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("<div class='split-box'><b>⚡ ĐOẢN CÂU (≤ 4 chữ)</b><br>Dành cho thán từ, tên riêng...</div>", unsafe_allow_html=True)
+            st.download_button("📥 TẢI ĐOẢN CÂU", short_srt, file_name=f"SHORT_V72_7_{file.name}", use_container_width=True)
+        with c2:
+            st.markdown("<div class='split-box'><b>📖 TRƯỜNG CÂU (> 4 chữ)</b><br>Dành cho hội thoại chính...</div>", unsafe_allow_html=True)
+            st.download_button("📥 TẢI TRƯỜNG CÂU", long_srt, file_name=f"LONG_V72_7_{file.name}", use_container_width=True)
+        
+        st.divider()
+        st.download_button(f"📥 TẢI TOÀN BỘ BẢN DỊCH", final_srt, file_name=f"FULL_V72_7_{file.name}", use_container_width=True)
+
     except Exception as e: st.error(f"Sụp đổ: {e}")
