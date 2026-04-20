@@ -24,9 +24,9 @@ except:
     pass
 
 # =========================================================
-# GIAO DIỆN (GIỮ NGUYÊN PHONG CÁCH v72.6)
+# GIAO DIỆN (PHONG CÁCH v72.8)
 # =========================================================
-st.set_page_config(page_title="Donghua v72.7 - Lưỡng Nghi", page_icon="🔱", layout="wide")
+st.set_page_config(page_title="Donghua v72.8 - Càn Khôn", page_icon="🔱", layout="wide")
 
 st.markdown("""
     <style>
@@ -42,8 +42,8 @@ st.markdown("""
     .w-retry { color: #d29922; border: 1px dashed #d29922; }
     .w-done { color: #3fb950; border: 1px solid #3fb950; }
     .w-idle { color: #8b949e; border: 1px dotted #8b949e; }
-    h4 { margin-bottom: 5px !important; color: #58a6ff !important; }
     .split-box { padding: 15px; border: 1px solid #30363d; border-radius: 8px; background: #0d1117; margin-top: 10px; }
+    h4 { margin-bottom: 5px !important; color: #58a6ff !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -69,15 +69,14 @@ status_lock = threading.Lock()
 worker_status_lock = threading.Lock()
 
 # =========================================================
-# ⚔️ HÀM BỔ TRỢ & DỊCH thuật
+# ⚔️ THUẬT TOÁN XỬ LÝ
 # =========================================================
 def call_gemini_scan(api_key, text_data, model_name):
     try:
         client = genai.Client(api_key=api_key)
         prompt = (
             "Analyze this Chinese SRT. ONLY extract: Character Names, Cultivation Ranks, and Locations. "
-            "Translate them to Vietnamese Hán-Việt. "
-            "Format: 'Original: Vietnamese'. No sentences, no explanations."
+            "Translate them to Vietnamese Hán-Việt. Format: 'Original: Vietnamese'."
         )
         response = client.models.generate_content(model=model_name, contents=f"{prompt}\n\nCONTENT:\n{text_data[:35000]}")
         return response.text.strip() if response.text else ""
@@ -89,7 +88,7 @@ def call_gemini_translate(api_key, text_data, expected_count, glossary, model_na
         sys_prompt = f"""Bạn là bậc thầy biên kịch lồng tiếng cho Donghua. 
 Nhiệm vụ: Dịch {expected_count} đoạn SRT sau sang tiếng Việt phong cách Tiên Hiệp.
 DANH SÁCH THUẬT NGỮ: {glossary}
-TIÊU CHUẨN: Văn phong cổ phong, nén nghĩa tối đa cho khớp miệng, xưng hô Ta - Ngươi chuẩn mực.
+TIÊU CHUẨN: Văn phong cổ phong, nén nghĩa tối đa cho khớp miệng, xưng hô chuẩn mực.
 ĐỊNH DẠNG: Trả về ĐÚNG {expected_count} đoạn SRT. KHÔNG đổi mốc thời gian."""
         
         response = client.models.generate_content(
@@ -102,34 +101,38 @@ TIÊU CHUẨN: Văn phong cổ phong, nén nghĩa tối đa cho khớp miệng, 
         return match.group(1) if match else res
     except Exception as e: return f"ERR_SYS: {str(e)}"
 
-# Hàm Phân Tách Lưỡng Nghi (Mới)
 def split_srt_by_length(srt_content, limit=4):
     blocks = [b.strip() for b in re.split(r'\n\s*\n', srt_content) if b.strip()]
-    short_blocks = []
-    long_blocks = []
+    short_blocks, long_blocks = [], []
     
     for block in blocks:
         lines = block.split('\n')
         if len(lines) >= 3:
-            # Lấy toàn bộ nội dung text (có thể có nhiều dòng trong 1 block)
             content_text = " ".join(lines[2:])
-            # Đếm số từ bằng cách tách khoảng trắng
+            # Đếm từ bằng cách tách khoảng trắng
             word_count = len(content_text.split())
-            
             if word_count <= limit:
                 short_blocks.append(block)
             else:
                 long_blocks.append(block)
-                
     return "\n\n".join(short_blocks), "\n\n".join(long_blocks)
 
 # =========================================================
-# GIAO DIỆN STREAMLIT
+# GIAO DIỆN CHÍNH
 # =========================================================
 with st.sidebar:
-    st.title("🔱 THIÊN QUÂN v72.7")
+    st.title("🔱 THIÊN QUÂN v72.8")
     file = st.file_uploader("📜 Nạp bí tịch (.srt)", type=["srt"])
-    model_choice = st.selectbox("🔮 Chọn Model", ["gemini-2.0-flash-exp", "gemini-1.5-flash"], index=0)
+    
+    # DANH SÁCH MODEL ĐÃ CẬP NHẬT
+    model_choice = st.selectbox("🔮 Chọn Model", [
+        "gemini-3-flash-preview", 
+        "gemini-3.1-pro-preview",
+        "gemini-3.1-flash-lite-preview", 
+        "gemini-2.5-flash",
+        "gemini-2.5-pro"
+    ], index=2)
+    
     b_size = st.number_input("Số đoạn/Lô", 10, 100, 50)
     c_time = st.number_input("Giây nghỉ/Key", 5, 60, 15)
     n_workers = st.slider("Số luồng xử lý", 1, 10, 5)
@@ -221,22 +224,22 @@ if 'start_btn' in locals() and start_btn and file:
                 p_bar.progress(stats["done"] / total)
                 time.sleep(0.5)
 
-        # HỢP NHẤT VÀ PHÂN TÁCH LƯỠNG NGHI
+        # HỢP NHẤT VÀ TÁCH FILE
         final_srt = "\n\n".join([results[i] for i in sorted(results.keys())])
         short_srt, long_srt = split_srt_by_length(final_srt, limit=4)
 
-        st.success(f"🎉 Bí tịch v72.7 đã hoàn thành!")
+        st.success(f"🎉 Bí tịch v72.8 đã hoàn thành!")
         
-        st.markdown("### 📥 TẢI XUỐNG CÁC BẢN PHÂN TÁCH")
+        st.markdown("### 📥 TẢI XUỐNG CHIẾN LỢI PHẨM")
         c1, c2 = st.columns(2)
         with c1:
-            st.markdown("<div class='split-box'><b>⚡ ĐOẢN CÂU (≤ 4 chữ)</b><br>Dành cho thán từ, tên riêng...</div>", unsafe_allow_html=True)
-            st.download_button("📥 TẢI ĐOẢN CÂU", short_srt, file_name=f"SHORT_V72_7_{file.name}", use_container_width=True)
+            st.markdown("<div class='split-box'><b>⚡ ĐOẢN CÂU (≤ 4 chữ)</b></div>", unsafe_allow_html=True)
+            st.download_button("📥 TẢI ĐOẢN CÂU", short_srt, file_name=f"SHORT_{file.name}", use_container_width=True)
         with c2:
-            st.markdown("<div class='split-box'><b>📖 TRƯỜNG CÂU (> 4 chữ)</b><br>Dành cho hội thoại chính...</div>", unsafe_allow_html=True)
-            st.download_button("📥 TẢI TRƯỜNG CÂU", long_srt, file_name=f"LONG_V72_7_{file.name}", use_container_width=True)
+            st.markdown("<div class='split-box'><b>📖 TRƯỜNG CÂU (> 4 chữ)</b></div>", unsafe_allow_html=True)
+            st.download_button("📥 TẢI TRƯỜNG CÂU", long_srt, file_name=f"LONG_{file.name}", use_container_width=True)
         
         st.divider()
-        st.download_button(f"📥 TẢI TOÀN BỘ BẢN DỊCH", final_srt, file_name=f"FULL_V72_7_{file.name}", use_container_width=True)
+        st.download_button(f"📥 TẢI BẢN FULL", final_srt, file_name=f"FULL_{file.name}", use_container_width=True)
 
     except Exception as e: st.error(f"Sụp đổ: {e}")
