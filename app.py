@@ -26,7 +26,7 @@ except:
 # =========================================================
 # GIAO DIỆN (GIỮ NGUYÊN PHONG CÁCH v72.6 GỐC)
 # =========================================================
-st.set_page_config(page_title="Donghua v73.8 - Nguyên Bản", page_icon="🔱", layout="wide")
+st.set_page_config(page_title="Donghua v74.0 - Tứ Chữ", page_icon="🔱", layout="wide")
 
 st.markdown("""
     <style>
@@ -120,14 +120,17 @@ NỘI DUNG CẦN THI TRIỂN:"""
         return match.group(1) if match else res
     except Exception as e: return f"ERR_SYS: {str(e)}"
 
-def split_srt_by_length(srt_content, limit=4):
+# Hàm tách file: limit=3 nghĩa là câu có 1, 2 hoặc 3 chữ sẽ vào file SHORT
+def split_srt_by_length(srt_content, limit=3):
     blocks = [b.strip() for b in re.split(r'\n\s*\n', srt_content) if b.strip()]
     short, long = [], []
     for b in blocks:
         lines = b.split('\n')
         if len(lines) >= 3:
             txt = " ".join(lines[2:])
-            if len(txt.split()) <= limit: short.append(b)
+            # Đếm số từ
+            word_count = len(txt.split())
+            if word_count <= limit: short.append(b)
             else: long.append(b)
     return "\n\n".join(short), "\n\n".join(long)
 
@@ -135,10 +138,9 @@ def split_srt_by_length(srt_content, limit=4):
 # GIAO DIỆN STREAMLIT
 # =========================================================
 with st.sidebar:
-    st.title("🔱 THIÊN QUÂN v73.8")
+    st.title("🔱 THIÊN QUÂN v74.0")
     file = st.file_uploader("📜 Nạp bí tịch (.srt)", type=["srt"])
     
-    # DANH SÁCH MODEL ĐÃ KHÔI PHỤC
     model_choice = st.selectbox("🔮 Chọn Model", [
         "gemini-3-flash-preview", 
         "gemini-3.1-pro-preview",
@@ -248,15 +250,16 @@ with tab2:
 # HIỂN THỊ KẾT QUẢ VÀ TẢI XUỐNG
 # =========================================================
 if st.session_state.final_results:
-    short_srt, long_srt = split_srt_by_length(st.session_state.final_results)
+    # limit=3: 1-3 chữ là SHORT, từ 4 chữ là LONG
+    short_srt, long_srt = split_srt_by_length(st.session_state.final_results, limit=3)
     st.success(f"🎉 Bí tịch đã hoàn thành viên mãn!")
     
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.markdown("<div class='split-box'><b>⚡ Đoản câu (≤ 4 chữ)</b></div>", unsafe_allow_html=True)
+        st.markdown("<div class='split-box'><b>⚡ Đoản câu (≤ 3 chữ)</b></div>", unsafe_allow_html=True)
         st.download_button("📥 TẢI ĐOẢN CÂU", short_srt, file_name=f"SHORT_{file.name if file else 'Dich.srt'}", use_container_width=True)
     with col2:
-        st.markdown("<div class='split-box'><b>📖 Trường câu (> 4 chữ)</b></div>", unsafe_allow_html=True)
+        st.markdown("<div class='split-box'><b>📖 Trường câu (> 3 chữ)</b></div>", unsafe_allow_html=True)
         st.download_button("📥 TẢI TRƯỜNG CÂU", long_srt, file_name=f"LONG_{file.name if file else 'Dich.srt'}", use_container_width=True)
     with col3:
         st.markdown("<div class='split-box'><b>📜 Toàn bộ bản dịch</b></div>", unsafe_allow_html=True)
