@@ -76,9 +76,7 @@ def call_gemini_scan(api_key, text_data, model_name):
     try:
         client = genai.Client(api_key=api_key)
         prompt = (
-            "Analyze this Chinese SRT. ONLY extract: Character Names, Cultivation Ranks, and Locations. "
-            "Translate them to Vietnamese Hán-Việt. Format: 'Original: Vietnamese'. "
-            "No sentences, no explanations, no duplicate entries. Focus ONLY on entities."
+            "Dịch tiếng anh sang tiếng việt sát nghĩa"
         )
         response = client.models.generate_content(
             model=model_name,
