@@ -7,7 +7,7 @@ import time
 import re
 import threading
 from datetime import datetime, timedelta
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 
 # --- HÓA GIẢI LỖI CONTEXT LUỒNG ---
 try:
@@ -28,22 +28,19 @@ SELECTED_MODEL = "gemini-3.1-flash-lite-preview"
 # =========================================================
 # GIAO DIỆN
 # =========================================================
-st.set_page_config(page_title="Donghua v74.0 - Tối Ưu", page_icon="🔱", layout="wide")
+st.set_page_config(page_title="Thiên Quân v74.0 - Fix", page_icon="🔱", layout="wide")
 
 st.markdown("""
     <style>
     .stApp { background-color: #0d1117; color: #c9d1d9; }
-    [data-testid="stSidebar"] { background-color: #161b22 !important; border-right: 1px solid #30363d; }
     .key-box { padding: 8px; border-radius: 6px; text-align: center; border: 1px solid #30363d; font-size: 0.75rem; margin-bottom: 5px; min-height: 60px; }
-    .k-active { background: #238636; color: #aff5b4; border-color: #2ea043; }
-    .k-busy { background: #1f6feb; color: #c2e0ff; border-color: #388bfd; }
-    .k-cool { background: #9e6a03; color: #ffdf5d; border-color: #d29922; }
-    .k-dead { background: #da3633; color: #ffd1d1; border-color: #f85149; }
+    .k-active { background: #238636; color: #aff5b4; }
+    .k-busy { background: #1f6feb; color: #c2e0ff; }
+    .k-cool { background: #9e6a03; color: #ffdf5d; }
+    .k-dead { background: #da3633; color: #ffd1d1; }
     .w-box { padding: 8px; border-radius: 4px; border: 1px solid #30363d; font-size: 0.75rem; text-align: center; background: #010409; margin-bottom: 5px; }
     .w-run { color: #58a6ff; border: 1px solid #58a6ff; }
-    .w-repair { color: #f85149; border: 1px dashed #f85149; }
     .w-done { color: #3fb950; border: 1px solid #3fb950; }
-    .w-idle { color: #8b949e; border: 1px dotted #8b949e; }
     .console-box { 
         background-color: #000000; color: #39ff14; font-family: 'Courier New', monospace; 
         padding: 10px; border-radius: 5px; border: 1px solid #30363d; height: 250px; overflow-y: auto; font-size: 0.85rem;
@@ -65,6 +62,7 @@ if 'key_manager' not in st.session_state:
 if 'glossary' not in st.session_state: st.session_state.glossary = ""
 if 'final_results' not in st.session_state: st.session_state.final_results = None
 if 'console_logs' not in st.session_state: st.session_state.console_logs = []
+if 'is_running' not in st.session_state: st.session_state.is_running = False
 
 manager = st.session_state.key_manager
 status_lock = threading.Lock()
@@ -98,7 +96,7 @@ def call_gemini_translate(api_key, text_data, expected, glossary):
     except Exception as e: return f"ERR_SYS: {str(e)}"
 
 # =========================================================
-# SIDEBAR & TABS
+# GIAO DIỆN CHÍNH
 # =========================================================
 with st.sidebar:
     st.title("🔱 THIÊN QUÂN v74.0")
@@ -108,6 +106,7 @@ with st.sidebar:
     c_time = st.number_input("Giây nghỉ", 5, 60, 15)
     n_workers = st.slider("Số luồng", 1, 10, 5)
     if st.button("♻️ RESET"): 
+        st.session_state.is_running = False
         st.session_state.final_results = None
         st.session_state.console_logs = []
         st.rerun()
@@ -128,7 +127,8 @@ with tab2:
             st.markdown("#### 🌊 Luồng Xử Lý")
             w_places = [st.empty() for _ in range(n_workers)]
             p_bar = st.progress(0)
-            start_btn = st.button("⚔️ BẮT ĐẦU KHAI TRẬN", type="primary", use_container_width=True)
+            if st.button("⚔️ BẮT ĐẦU KHAI TRẬN", type="primary", use_container_width=True):
+                st.session_state.is_running = True
 
         console_placeholder = st.empty()
 
@@ -147,8 +147,9 @@ with tab2:
             log_text = "\n".join(st.session_state.console_logs[::-1])
             console_placeholder.markdown(f"<div class='console-box'>{log_text}</div>", unsafe_allow_html=True)
 
-        if start_btn:
+        if st.session_state.is_running:
             try:
+                add_log("⚔️ HỆ THỐNG KHỞI ĐỘNG...")
                 raw = file.getvalue().decode("utf-8-sig", errors="replace").strip()
                 orig_blocks = parse_srt(raw)
                 batches = [orig_blocks[i:i + b_size] for i in range(0, len(orig_blocks), b_size)]
@@ -156,8 +157,12 @@ with tab2:
                 translated_dict = {}
                 worker_map = {i: {"msg": "Sẵn sàng", "style": "w-idle"} for i in range(n_workers)}
                 main_ctx = get_script_run_context()
+                
+                # Biến đếm an toàn
+                results_counter = 0
 
-                def worker_logic(batch_idx, batch_content, worker_id, is_repair=False):
+                def worker_logic(batch_idx, batch_content, worker_id):
+                    nonlocal results_counter
                     add_script_run_context(main_ctx)
                     expected = len(batch_content)
                     while True:
@@ -170,7 +175,7 @@ with tab2:
                             time.sleep(1); continue
 
                         with worker_status_lock: 
-                            worker_map[worker_id] = {"msg": f"Lô {batch_idx+1}: {'Sửa' if is_repair else 'Dịch'}...", "style": "w-run"}
+                            worker_map[worker_id] = {"msg": f"Lô {batch_idx+1}: Đang dịch...", "style": "w-run"}
                         
                         res = call_gemini_translate(manager[cur_k]["key"], "\n\n".join(batch_content), expected, st.session_state.glossary)
                         
@@ -178,44 +183,52 @@ with tab2:
                             manager[cur_k]["last_finished"] = datetime.now(); manager[cur_k]["in_use"] = False
                             res_blocks = parse_srt(res)
                             if len(res_blocks) >= expected:
-                                return res_blocks[:expected]
+                                for j, block in enumerate(res_blocks[:expected]):
+                                    translated_dict[batch_idx * b_size + j] = block
+                                results_counter += 1
+                                with worker_status_lock: 
+                                    worker_map[worker_id] = {"msg": f"Lô {batch_idx+1}: Xong", "style": "w-done"}
+                                return
                             if "429" in res: manager[cur_k]["status"] = "DEAD"
-                            add_log(f"Lô {batch_idx+1} thất bại, đang thử lại...")
+                            add_log(f"⚠️ Lô {batch_idx+1} thất bại, đang thử lại...")
                             time.sleep(2)
 
-                # --- PHASE 1: DỊCH ---
-                add_log("--- GIAI ĐOẠN 1: DỊCH TỔNG LỰC ---")
+                # CHẠY ĐA LUỒNG
                 with ThreadPoolExecutor(max_workers=n_workers) as executor:
-                    futures = {executor.submit(worker_logic, i, batches[i], i % n_workers): i for i in range(len(batches))}
-                    done_count = 0
-                    while done_count < len(batches):
-                        for f in as_completed(futures):
-                            idx = futures[f]
-                            res = f.result()
-                            for j, block in enumerate(res): translated_dict[idx * b_size + j] = block
-                            done_count += 1
-                            p_bar.progress(done_count / len(batches))
-                            refresh_ui(worker_map)
+                    for i in range(len(batches)):
+                        executor.submit(worker_logic, i, batches[i], i % n_workers)
+                    
+                    # Vòng lặp chờ kết quả và cập nhật UI
+                    while results_counter < len(batches):
+                        refresh_ui(worker_map)
+                        p_bar.progress(results_counter / len(batches))
+                        time.sleep(0.5)
 
-                # --- PHASE 2: AUDIT & REPAIR ---
-                add_log("--- GIAI ĐOẠN 2: ĐẠI TU (AUDIT) ---")
+                # KIỂM TRA LỖI & REPAIR (TỰ ĐỘNG)
+                add_log("🔍 KIỂM TRA MỐC THỜI GIAN...")
                 broken = [i for i in range(len(orig_blocks)) if i not in translated_dict or get_timecode(orig_blocks[i]) != get_timecode(translated_dict[i])]
                 
                 if broken:
-                    add_log(f"Phát hiện {len(broken)} câu sai mốc. Đang sửa...")
+                    add_log(f"⚡ Phát hiện {len(broken)} câu lệch. Đang đại tu...")
                     repair_batches = [broken[i:i + 20] for i in range(0, len(broken), 20)]
                     for rb_idx, r_indices in enumerate(repair_batches):
                         r_content = [orig_blocks[idx] for idx in r_indices]
-                        fixed = worker_logic(rb_idx, r_content, 0, is_repair=True)
-                        for j, idx in enumerate(r_indices): translated_dict[idx] = fixed[j]
-                        add_log(f"Đã sửa lô repair {rb_idx+1}")
-                        refresh_ui(worker_map)
+                        # Sửa đồng bộ cho đơn giản và an toàn
+                        fixed = call_gemini_translate(VALID_KEYS[0], "\n\n".join(r_content), len(r_indices), st.session_state.glossary)
+                        fixed_blocks = parse_srt(fixed)
+                        if len(fixed_blocks) >= len(r_indices):
+                            for j, idx in enumerate(r_indices): translated_dict[idx] = fixed_blocks[j]
+                    add_log("✅ Đã đại tu xong.")
 
                 st.session_state.final_results = "\n\n".join([translated_dict[i] for i in range(len(orig_blocks))])
-                add_log("HOÀN THÀNH VIÊN MÃN!")
+                st.session_state.is_running = False
+                add_log("💎 HOÀN THÀNH!")
                 st.rerun()
-            except Exception as e: add_log(f"LỖI HỆ THỐNG: {str(e)}")
+
+            except Exception as e: 
+                add_log(f"❌ LỖI: {str(e)}")
+                st.session_state.is_running = False
 
 if st.session_state.final_results:
-    st.success("🎉 Dịch và chuẩn hóa mốc thời gian thành công!")
-    st.download_button("📥 TẢI BẢN FULL", st.session_state.final_results, file_name=f"FINAL_{file.name if file else 'Dich.srt'}", use_container_width=True)
+    st.success("🎉 Đã hoàn thành bí tịch!")
+    st.download_button("📥 TẢI FILE FULL", st.session_state.final_results, file_name=f"FINAL_{file.name if file else 'Dich.srt'}", use_container_width=True)
