@@ -122,7 +122,7 @@ def call_gemini_translate(api_key, text_data, expected_count, glossary, model_na
 with st.sidebar:
     st.title("🔱 THIÊN QUÂN v74.0")
     file = st.file_uploader("📜 Nạp bí tịch (.srt)", type=["srt"])
-    model_choice = st.selectbox("🔮 Chọn Model", ["gemini-3-flash-preview", "gemini-3.1-pro-preview", "gemini-2.5-flash"], index=0)
+    model_choice = st.selectbox("🔮 Chọn Model", ["gemini-3.1-flash-lite-preview"], index=0)
     b_size = st.number_input("Số đoạn/Lô", 10, 100, 50)
     c_time = st.number_input("Giây nghỉ/Key", 5, 60, 15)
     n_workers = st.slider("Số luồng xử lý", 1, 10, 5)
