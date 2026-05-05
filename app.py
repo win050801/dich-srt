@@ -120,20 +120,6 @@ NỘI DUNG CẦN THI TRIỂN:"""
         return match.group(1) if match else res
     except Exception as e: return f"ERR_SYS: {str(e)}"
 
-# Hàm tách file: limit=3 nghĩa là câu có 1, 2 hoặc 3 chữ sẽ vào file SHORT
-def split_srt_by_length(srt_content, limit=3):
-    blocks = [b.strip() for b in re.split(r'\n\s*\n', srt_content) if b.strip()]
-    short, long = [], []
-    for b in blocks:
-        lines = b.split('\n')
-        if len(lines) >= 3:
-            txt = " ".join(lines[2:])
-            # Đếm số từ
-            word_count = len(txt.split())
-            if word_count <= limit: short.append(b)
-            else: long.append(b)
-    return "\n\n".join(short), "\n\n".join(long)
-
 # =========================================================
 # GIAO DIỆN STREAMLIT
 # =========================================================
@@ -224,15 +210,29 @@ with tab2:
                             with worker_status_lock: worker_map[worker_id] = {"msg": f"Lô {batch_idx+1}: Đợi Key...", "style": "w-retry"}
                             time.sleep(2); continue
                         with worker_status_lock: worker_map[worker_id] = {"msg": f"Lô {batch_idx+1}: Dịch...", "style": "w-run"}
+                        
                         res = call_gemini_translate(manager[cur_k]["key"], chunk_text, expected, glossary_text, selected_model)
+                        
                         with status_lock:
                             manager[cur_k]["last_finished"] = datetime.now(); manager[cur_k]["in_use"] = False
+                            
+                            # Nếu số đoạn trả về đúng bằng số đoạn đầu vào (thành công)
                             if res.count("-->") >= expected:
                                 results[batch_idx] = res; stats["done"] += 1
                                 with worker_status_lock: worker_map[worker_id] = {"msg": f"Lô {batch_idx+1}: ✅ Xong", "style": "w-done"}
                                 return "OK"
                             else:
-                                if "429" in res: manager[cur_k]["status"] = "DEAD"
+                                # NHẬN DIỆN VÀ BÁO LỖI LÊN GIAO DIỆN
+                                err_detail = res if "ERR_SYS:" in res else f"Thiếu line (Đạt {res.count('-->')}/{expected})"
+                                if "429" in res: 
+                                    manager[cur_k]["status"] = "DEAD"
+                                    err_detail = "Lỗi 429: Quá tải Key (Rate Limit)"
+                                
+                                # Rút gọn lỗi để tránh làm vỡ giao diện UI
+                                display_err = err_detail[:80] + "..." if len(err_detail) > 80 else err_detail
+                                
+                                with worker_status_lock: 
+                                    worker_map[worker_id] = {"msg": f"Lô {batch_idx+1} ⚠️ Lỗi: {display_err}", "style": "w-retry"}
                                 time.sleep(2)
 
                 with ThreadPoolExecutor(max_workers=n_workers) as executor:
@@ -244,23 +244,18 @@ with tab2:
 
                 st.session_state.final_results = "\n\n".join([results[i] for i in sorted(results.keys())])
                 st.rerun()
-            except Exception as e: st.error(f"Sụp đổ: {e}")
+            except Exception as e: st.error(f"Sụp đổ hệ thống: {e}")
 
 # =========================================================
 # HIỂN THỊ KẾT QUẢ VÀ TẢI XUỐNG
 # =========================================================
 if st.session_state.final_results:
-    # limit=3: 1-3 chữ là SHORT, từ 4 chữ là LONG
-    short_srt, long_srt = split_srt_by_length(st.session_state.final_results, limit=3)
     st.success(f"🎉 Bí tịch đã hoàn thành viên mãn!")
     
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.markdown("<div class='split-box'><b>⚡ Đoản câu (≤ 3 chữ)</b></div>", unsafe_allow_html=True)
-        st.download_button("📥 TẢI ĐOẢN CÂU", short_srt, file_name=f"SHORT_{file.name if file else 'Dich.srt'}", use_container_width=True)
-    with col2:
-        st.markdown("<div class='split-box'><b>📖 Trường câu (> 3 chữ)</b></div>", unsafe_allow_html=True)
-        st.download_button("📥 TẢI TRƯỜNG CÂU", long_srt, file_name=f"LONG_{file.name if file else 'Dich.srt'}", use_container_width=True)
-    with col3:
-        st.markdown("<div class='split-box'><b>📜 Toàn bộ bản dịch</b></div>", unsafe_allow_html=True)
-        st.download_button("📥 TẢI BẢN FULL", st.session_state.final_results, file_name=f"FULL_{file.name if file else 'Dich.srt'}", use_container_width=True)
+    st.markdown("<div class='split-box' style='text-align: center;'><b>📜 Toàn bộ bản dịch</b></div>", unsafe_allow_html=True)
+    st.download_button(
+        "📥 TẢI BẢN FULL (.srt)", 
+        st.session_state.final_results, 
+        file_name=f"FULL_{file.name if file else 'Dich.srt'}", 
+        use_container_width=True
+    )
