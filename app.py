@@ -70,7 +70,7 @@ status_lock = threading.Lock()
 worker_status_lock = threading.Lock()
 
 # =========================================================
-# ⚔️ CÁC HÀM XỬ LÝ (GIỮ NGUYÊN LOGIC GỐC)
+# ⚔️ CÁC HÀM XỬ LÝ
 # =========================================================
 def call_gemini_scan(api_key, text_data, model_name):
     try:
@@ -120,19 +120,17 @@ NỘI DUNG CẦN THI TRIỂN:"""
         return match.group(1) if match else res
     except Exception as e: return f"ERR_SYS: {str(e)}"
 
-# Hàm tách file: limit=3 nghĩa là câu có 1, 2 hoặc 3 chữ sẽ vào file SHORT
-def split_srt_by_length(srt_content, limit=3):
-    blocks = [b.strip() for b in re.split(r'\n\s*\n', srt_content) if b.strip()]
-    short, long = [], []
-    for b in blocks:
-        lines = b.split('\n')
-        if len(lines) >= 3:
-            txt = " ".join(lines[2:])
-            # Đếm số từ
-            word_count = len(txt.split())
-            if word_count <= limit: short.append(b)
-            else: long.append(b)
-    return "\n\n".join(short), "\n\n".join(long)
+# Hàm kiểm tra tính hợp lệ của lô dịch
+def validate_batch(res_text, expected_count):
+    blocks = [b.strip() for b in re.split(r'\n\s*\n', res_text) if b.strip()]
+    if len(blocks) != expected_count: return False
+    # Kiểm tra xem có đủ mốc thời gian không
+    if res_text.count("-->") != expected_count: return False
+    return True
+
+def extract_timestamp(block):
+    match = re.search(r"\d{2}:\d{2}:\d{2},\d{3} --> \d{2}:\d{2}:\d{2},\d{3}", block)
+    return match.group(0) if match else ""
 
 # =========================================================
 # GIAO DIỆN STREAMLIT
@@ -200,18 +198,19 @@ with tab2:
 
         if 'start_btn' in locals() and start_btn and file:
             try:
-                raw = file.getvalue().decode("utf-8-sig", errors="replace").strip()
-                blocks = [b.strip() for b in re.split(r'\n\s*\n', raw) if b.strip()]
-                batches = [blocks[i:i + b_size] for i in range(0, len(blocks), b_size)]
+                raw_text = file.getvalue().decode("utf-8-sig", errors="replace").strip()
+                orig_blocks = [b.strip() for b in re.split(r'\n\s*\n', raw_text) if b.strip()]
+                batches = [orig_blocks[i:i + b_size] for i in range(0, len(orig_blocks), b_size)]
                 total = len(batches)
                 results, stats = {}, {"done": 0}
                 worker_map = {i: {"msg": "Sẵn sàng", "style": "w-idle"} for i in range(n_workers)}
                 main_ctx = get_script_run_context()
 
-                def worker_logic(batch_idx, worker_id, glossary_text, selected_model):
+                def worker_logic(batch_idx, worker_id, glossary_text, selected_model, current_batch_data):
                     add_script_run_context(main_ctx)
-                    chunk_blocks = batches[batch_idx]; expected = len(chunk_blocks)
-                    chunk_text = "\n\n".join(chunk_blocks)
+                    expected = len(current_batch_data)
+                    chunk_text = "\n\n".join(current_batch_data)
+                    
                     while True:
                         cur_k = None
                         with status_lock:
@@ -223,11 +222,13 @@ with tab2:
                             if not any(k["status"] == "ACTIVE" for k in manager.values()): return "FATAL"
                             with worker_status_lock: worker_map[worker_id] = {"msg": f"Lô {batch_idx+1}: Đợi Key...", "style": "w-retry"}
                             time.sleep(2); continue
+                        
                         with worker_status_lock: worker_map[worker_id] = {"msg": f"Lô {batch_idx+1}: Dịch...", "style": "w-run"}
                         res = call_gemini_translate(manager[cur_k]["key"], chunk_text, expected, glossary_text, selected_model)
+                        
                         with status_lock:
                             manager[cur_k]["last_finished"] = datetime.now(); manager[cur_k]["in_use"] = False
-                            if res.count("-->") >= expected:
+                            if validate_batch(res, expected):
                                 results[batch_idx] = res; stats["done"] += 1
                                 with worker_status_lock: worker_map[worker_id] = {"msg": f"Lô {batch_idx+1}: ✅ Xong", "style": "w-done"}
                                 return "OK"
@@ -235,14 +236,55 @@ with tab2:
                                 if "429" in res: manager[cur_k]["status"] = "DEAD"
                                 time.sleep(2)
 
+                # Chạy luồng dịch chính
                 with ThreadPoolExecutor(max_workers=n_workers) as executor:
-                    for i in range(total): executor.submit(worker_logic, i, i % n_workers, st.session_state.glossary, model_choice)
+                    for i in range(total): executor.submit(worker_logic, i, i % n_workers, st.session_state.glossary, model_choice, batches[i])
                     while stats["done"] < total:
                         refresh_ui(worker_map)
                         p_bar.progress(stats["done"] / total)
                         time.sleep(0.5)
 
-                st.session_state.final_results = "\n\n".join([results[i] for i in sorted(results.keys())])
+                # =========================================================
+                # HẬU KIỂM: SO KHỚP MỐC THỜI GIAN
+                # =========================================================
+                p_text.info("🛠️ Đang kiểm tra linh lực mốc thời gian...")
+                full_translated_raw = "\n\n".join([results[i] for i in sorted(results.keys())])
+                trans_blocks = [b.strip() for b in re.split(r'\n\s*\n', full_translated_raw) if b.strip()]
+                
+                # Tìm các câu bị lệch mốc thời gian
+                error_indices = []
+                for i in range(len(orig_blocks)):
+                    orig_ts = extract_timestamp(orig_blocks[i])
+                    # Nếu dịch thiếu block hoặc mốc thời gian không khớp
+                    if i >= len(trans_blocks) or extract_timestamp(trans_blocks[i]) != orig_ts:
+                        error_indices.append(i)
+                
+                if error_indices:
+                    p_text.warning(f"⚠️ Phát hiện {len(error_indices)} mốc thời gian sai lệch. Đang truy hồi...")
+                    # Gom những block lỗi thành lô mới để dịch lại
+                    fix_batches = [orig_blocks[idx] for idx in error_indices]
+                    # Tạm thời reset để chạy lại worker_logic cho các lô lỗi
+                    results.clear(); stats["done"] = 0
+                    fix_data_batches = [fix_batches[i:i + b_size] for i in range(0, len(fix_batches), b_size)]
+                    
+                    with ThreadPoolExecutor(max_workers=n_workers) as executor:
+                        for i in range(len(fix_data_batches)):
+                            executor.submit(worker_logic, i, i % n_workers, st.session_state.glossary, model_choice, fix_data_batches[i])
+                        while stats["done"] < len(fix_data_batches):
+                            refresh_ui(worker_map)
+                            time.sleep(0.5)
+                    
+                    # Thay thế các block lỗi bằng block đã sửa
+                    fixed_blocks_flat = []
+                    for i in sorted(results.keys()):
+                        fixed_blocks_flat.extend([b.strip() for b in re.split(r'\n\s*\n', results[i]) if b.strip()])
+                    
+                    for i, orig_idx in enumerate(error_indices):
+                        if i < len(fixed_blocks_flat):
+                            if orig_idx < len(trans_blocks): trans_blocks[orig_idx] = fixed_blocks_flat[i]
+                            else: trans_blocks.append(fixed_blocks_flat[i])
+
+                st.session_state.final_results = "\n\n".join(trans_blocks)
                 st.rerun()
             except Exception as e: st.error(f"Sụp đổ: {e}")
 
@@ -250,17 +292,13 @@ with tab2:
 # HIỂN THỊ KẾT QUẢ VÀ TẢI XUỐNG
 # =========================================================
 if st.session_state.final_results:
-    # limit=3: 1-3 chữ là SHORT, từ 4 chữ là LONG
-    short_srt, long_srt = split_srt_by_length(st.session_state.final_results, limit=3)
     st.success(f"🎉 Bí tịch đã hoàn thành viên mãn!")
-    
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.markdown("<div class='split-box'><b>⚡ Đoản câu (≤ 3 chữ)</b></div>", unsafe_allow_html=True)
-        st.download_button("📥 TẢI ĐOẢN CÂU", short_srt, file_name=f"SHORT_{file.name if file else 'Dich.srt'}", use_container_width=True)
-    with col2:
-        st.markdown("<div class='split-box'><b>📖 Trường câu (> 3 chữ)</b></div>", unsafe_allow_html=True)
-        st.download_button("📥 TẢI TRƯỜNG CÂU", long_srt, file_name=f"LONG_{file.name if file else 'Dich.srt'}", use_container_width=True)
-    with col3:
-        st.markdown("<div class='split-box'><b>📜 Toàn bộ bản dịch</b></div>", unsafe_allow_html=True)
-        st.download_button("📥 TẢI BẢN FULL", st.session_state.final_results, file_name=f"FULL_{file.name if file else 'Dich.srt'}", use_container_width=True)
+    st.download_button(
+        "📥 TẢI BẢN DỊCH FULL (.srt)", 
+        st.session_state.final_results, 
+        file_name=f"FULL_{file.name if file else 'Dich.srt'}", 
+        use_container_width=True,
+        type="primary"
+    )
+    with st.expander("Xem trước bản dịch"):
+        st.text_area("", st.session_state.final_results, height=400)
