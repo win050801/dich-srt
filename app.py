@@ -17,7 +17,7 @@ except ImportError:
     def get_script_run_context(*args, **kwargs): return None
 
 # --- KHỞI TẠO CẤU HÌNH ---
-st.set_page_config(page_title="Donghua v75.2 - Model 3", page_icon="🔱", layout="wide")
+st.set_page_config(page_title="Donghua v75.4 - Model 3 Pure", page_icon="🔱", layout="wide")
 
 st.markdown("""
     <style>
@@ -59,27 +59,38 @@ status_lock = threading.Lock()
 worker_status_lock = threading.Lock()
 
 # =========================================================
-# PHÁP THUẬT KIỂM TRA & DỊCH
+# PHÁP THUẬT KIỂM TRA & DỊCH (CHỈ DÙNG MODEL 3)
 # =========================================================
+
 def check_key_health(api_key, model_name):
-    """Kiểm tra linh thạch trước khi khai trận"""
+    """Thanh lọc linh thạch bằng chính Model 3 đã chọn"""
     try:
         client = genai.Client(api_key=api_key)
-        client.models.generate_content(model=model_name, contents="hi", config=types.GenerateContentConfig(max_output_tokens=1))
+        # Gửi một tín hiệu cực ngắn để xác thực Key
+        client.models.generate_content(
+            model=model_name, 
+            contents="ping", 
+            config=types.GenerateContentConfig(max_output_tokens=1)
+        )
         return True
-    except: return False
+    except Exception as e:
+        msg = str(e).lower()
+        # Chỉ khai tử Key nếu gặp lỗi xác thực hoặc không tồn tại
+        if any(x in msg for x in ["api_key_invalid", "401", "not found", "expired", "invalid"]):
+            return False
+        # Nếu lỗi 429 (quá tải) hoặc lỗi server 500, vẫn giữ Key để thử lại
+        return True
 
 def call_gemini_translate(api_key, text_data, expected_count, glossary, model_name):
     try:
         client = genai.Client(api_key=api_key)
         sys_prompt = f"""Bạn là bậc thầy biên kịch Donghua. Dịch {expected_count} đoạn SRT sang tiếng Việt Tiên Hiệp.
 THUẬT NGỮ CỐ ĐỊNH: {glossary}
-TIÊU CHUẨN VÀNG: Văn phong Hán-Việt súc tích, khớp miệng lồng tiếng, đúng định dạng SRT, không gộp đoạn.
-XƯNG HÔ: Ta, Ngươi, Lão phu, Bổn tọa..."""
+TIÊU CHUẨN: Hán-Việt súc tích, khớp miệng lồng tiếng, đúng định dạng SRT, không gộp đoạn."""
         
         response = client.models.generate_content(
             model=model_name, 
-            contents=f"{sys_prompt}\n\nNỘI DUNG:\n{text_data}",
+            contents=f"{sys_prompt}\n\nNỘI DUNG SRT:\n{text_data}",
             config=types.GenerateContentConfig(
                 temperature=0.3,
                 safety_settings=[{"category": c, "threshold": "BLOCK_NONE"} for c in [
@@ -97,16 +108,14 @@ XƯNG HÔ: Ta, Ngươi, Lão phu, Bổn tọa..."""
 # GIAO DIỆN CHÍNH
 # =========================================================
 with st.sidebar:
-    st.title("🔱 THIÊN QUÂN v75.2")
+    st.title("🔱 THIÊN QUÂN v75.4")
     file = st.file_uploader("📜 Nạp bí tịch (.srt)", type=["srt"])
     
-    # DANH SÁCH MODEL 3 THEO YÊU CẦU
-    model_choice = st.selectbox("🔮 Chọn Model", [
+    # DANH SÁCH CHỈ GỒM MODEL 3/3.1
+    model_choice = st.selectbox("🔮 Chọn Model 3", [
         "gemini-3-flash-preview", 
         "gemini-3.1-pro-preview",
-        "gemini-3.1-flash-lite-preview", 
-        "gemini-2.5-flash",
-        "gemini-2.5-pro"
+        "gemini-3.1-flash-lite-preview"
     ], index=0)
     
     b_size = st.number_input("Số đoạn/Lô", 10, 100, 50)
@@ -125,7 +134,7 @@ with tab1:
 
 with tab2:
     if not file:
-        st.info("💡 Hãy nạp file SRT để bắt đầu luyện hóa.")
+        st.info("💡 Hãy nạp file SRT để bắt đầu.")
     elif st.session_state.final_results is None:
         col_k, col_w = st.columns([1, 2.5])
         with col_k:
@@ -152,18 +161,19 @@ with tab2:
                 w_places[i].markdown(f"<div class='w-box {info['style']}'><b>Luồng {i+1}</b>: {info['msg']}</div>", unsafe_allow_html=True)
 
         if start_btn:
-            # BƯỚC 1: QUÉT KEY HỎNG
-            p_text.warning("🔍 Đang thanh lọc Linh thạch...")
+            # BƯỚC 1: THANH LỌC BẰNG CHÍNH MODEL 3 ĐÃ CHỌN
+            p_text.warning(f"🔍 Đang thanh lọc Linh thạch bằng {model_choice}...")
             for i, k in manager.items():
                 if k["status"] == "ACTIVE":
                     if not check_key_health(k["key"], model_choice):
                         k["status"] = "DEAD"
+                    time.sleep(0.3) # Delay nhẹ để tránh bị Google chặn vì check quá nhanh
             
             if not any(k["status"] == "ACTIVE" for k in manager.values()):
-                st.error("🛑 Không còn Linh thạch nào khả dụng!")
+                st.error("🛑 Toàn bộ Linh thạch đã cạn kiệt linh lực! Hãy kiểm tra lại Key.")
                 st.stop()
 
-            # BƯỚC 2: DỊCH
+            # BƯỚC 2: KHAI TRẬN DỊCH
             raw = file.getvalue().decode("utf-8-sig", errors="replace").strip()
             blocks = [b.strip() for b in re.split(r'\n\s*\n', raw) if b.strip()]
             batches = [blocks[i:i + b_size] for i in range(0, len(blocks), b_size)]
@@ -188,7 +198,7 @@ with tab2:
                         with worker_status_lock: worker_map[worker_id] = {"msg": f"Lô {batch_idx+1}: Chờ Key...", "style": "w-retry"}
                         time.sleep(2); continue
                     
-                    with worker_status_lock: worker_map[worker_id] = {"msg": f"Lô {batch_idx+1}: Dịch...", "style": "w-run"}
+                    with worker_status_lock: worker_map[worker_id] = {"msg": f"Lô {batch_idx+1}: Đang dịch...", "style": "w-run"}
                     res = call_gemini_translate(manager[cur_k]["key"], chunk_text, expected, st.session_state.glossary, model_choice)
                     
                     with status_lock:
@@ -198,7 +208,9 @@ with tab2:
                             with worker_status_lock: worker_map[worker_id] = {"msg": f"Lô {batch_idx+1}: ✅ Xong", "style": "w-done"}
                             return
                         else:
-                            if "429" in res or "INVALID" in res: manager[cur_k]["status"] = "DEAD"
+                            # Nếu trong lúc dịch mà phát hiện Key chết hẳn
+                            if any(x in res.upper() for x in ["401", "INVALID", "EXPIRED"]):
+                                manager[cur_k]["status"] = "DEAD"
                             time.sleep(2)
 
             with ThreadPoolExecutor(max_workers=n_workers) as executor:
@@ -213,15 +225,15 @@ with tab2:
             st.rerun()
 
 # =========================================================
-# HIỂN THỊ KẾT QUẢ
+# KẾT QUẢ CUỐI CÙNG
 # =========================================================
 if st.session_state.final_results:
-    st.success("🎉 Bí tịch đã luyện xong! Bản Full đã sẵn sàng.")
+    st.success("🎉 Bí tịch đã luyện xong viên mãn bằng Model 3!")
     st.download_button(
-        label="📥 TẢI TOÀN BỘ BẢN DỊCH (.SRT)", 
+        label="🚀 TẢI TOÀN BỘ BẢN DỊCH (.SRT)", 
         data=st.session_state.final_results, 
         file_name=f"FULL_{file.name if file else 'Dich.srt'}", 
         use_container_width=True, type="primary"
     )
-    with st.expander("👁️ Xem nhanh nội dung"):
+    with st.expander("👁️ Xem trước nội dung"):
         st.text_area("Preview:", st.session_state.final_results, height=300)
