@@ -28,7 +28,7 @@ SELECTED_MODEL = "gemini-3.1-flash-lite-preview"
 # =========================================================
 # GIAO DIỆN
 # =========================================================
-st.set_page_config(page_title="Thiên Quân v74.0 - Fix", page_icon="🔱", layout="wide")
+st.set_page_config(page_title="Thiên Quân v74.0 - Final Fix", page_icon="🔱", layout="wide")
 
 st.markdown("""
     <style>
@@ -132,7 +132,7 @@ with tab2:
 
         console_placeholder = st.empty()
 
-        def refresh_ui(worker_map):
+        def refresh_ui(worker_map, stats):
             now = datetime.now()
             for i, k in manager.items():
                 diff = (now - k["last_finished"]).total_seconds()
@@ -156,13 +156,10 @@ with tab2:
                 
                 translated_dict = {}
                 worker_map = {i: {"msg": "Sẵn sàng", "style": "w-idle"} for i in range(n_workers)}
+                stats = {"done": 0} # Dùng Dictionary để tránh lỗi nonlocal SyntaxError
                 main_ctx = get_script_run_context()
-                
-                # Biến đếm an toàn
-                results_counter = 0
 
                 def worker_logic(batch_idx, batch_content, worker_id):
-                    nonlocal results_counter
                     add_script_run_context(main_ctx)
                     expected = len(batch_content)
                     while True:
@@ -185,7 +182,7 @@ with tab2:
                             if len(res_blocks) >= expected:
                                 for j, block in enumerate(res_blocks[:expected]):
                                     translated_dict[batch_idx * b_size + j] = block
-                                results_counter += 1
+                                stats["done"] += 1 # Cập nhật trực tiếp vào dict
                                 with worker_status_lock: 
                                     worker_map[worker_id] = {"msg": f"Lô {batch_idx+1}: Xong", "style": "w-done"}
                                 return
@@ -198,10 +195,9 @@ with tab2:
                     for i in range(len(batches)):
                         executor.submit(worker_logic, i, batches[i], i % n_workers)
                     
-                    # Vòng lặp chờ kết quả và cập nhật UI
-                    while results_counter < len(batches):
-                        refresh_ui(worker_map)
-                        p_bar.progress(results_counter / len(batches))
+                    while stats["done"] < len(batches):
+                        refresh_ui(worker_map, stats)
+                        p_bar.progress(stats["done"] / len(batches))
                         time.sleep(0.5)
 
                 # KIỂM TRA LỖI & REPAIR (TỰ ĐỘNG)
@@ -213,8 +209,9 @@ with tab2:
                     repair_batches = [broken[i:i + 20] for i in range(0, len(broken), 20)]
                     for rb_idx, r_indices in enumerate(repair_batches):
                         r_content = [orig_blocks[idx] for idx in r_indices]
-                        # Sửa đồng bộ cho đơn giản và an toàn
-                        fixed = call_gemini_translate(VALID_KEYS[0], "\n\n".join(r_content), len(r_indices), st.session_state.glossary)
+                        # Sửa dùng key đầu tiên còn sống để ổn định
+                        active_key = next((k["key"] for k in manager.values() if k["status"] == "ACTIVE"), VALID_KEYS[0])
+                        fixed = call_gemini_translate(active_key, "\n\n".join(r_content), len(r_indices), st.session_state.glossary)
                         fixed_blocks = parse_srt(fixed)
                         if len(fixed_blocks) >= len(r_indices):
                             for j, idx in enumerate(r_indices): translated_dict[idx] = fixed_blocks[j]
