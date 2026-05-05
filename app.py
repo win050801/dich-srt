@@ -7,23 +7,17 @@ import time
 import re
 import threading
 from datetime import datetime, timedelta
-from concurrent.futures import ThreadPoolExecutor, as_completed
-
-# --- HÓA GIẢI LỖI CONTEXT LUỒNG ---
-try:
-    from streamlit.runtime.scriptrunner import add_script_run_context, get_script_run_context
-except ImportError:
-    def add_script_run_context(*args, **kwargs): pass
-    def get_script_run_context(*args, **kwargs): return None
+from concurrent.futures import ThreadPoolExecutor
+from queue import Queue
 
 # --- KHỞI TẠO CẤU HÌNH ---
-st.set_page_config(page_title="Donghua v75.5 - Fix Treo", page_icon="🔱", layout="wide")
+st.set_page_config(page_title="Donghua v75.6 - Fix Key Leak", page_icon="🔱", layout="wide")
 
 st.markdown("""
     <style>
     .stApp { background-color: #0d1117; color: #c9d1d9; }
     [data-testid="stSidebar"] { background-color: #161b22 !important; border-right: 1px solid #30363d; }
-    .key-box { padding: 8px; border-radius: 6px; text-align: center; border: 1px solid #30363d; font-size: 0.75rem; margin-bottom: 5px; min-height: 50px; }
+    .key-box { padding: 8px; border-radius: 6px; text-align: center; border: 1px solid #30363d; font-size: 0.75rem; margin-bottom: 5px; min-height: 55px; }
     .k-active { background: #238636; color: #aff5b4; }
     .k-busy { background: #1f6feb; color: #c2e0ff; }
     .k-cool { background: #9e6a03; color: #ffdf5d; }
@@ -37,18 +31,14 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # =========================================================
-# QUẢN LÝ LINH LỰC
+# QUẢN LÝ TÀI NGUYÊN
 # =========================================================
 RAW_KEYS = [os.getenv(f"GEMINI_KEY_{i}") for i in range(1, 21)]
 VALID_KEYS = [k.strip() for k in RAW_KEYS if k and len(k.strip()) > 10]
 
-if not VALID_KEYS:
-    st.sidebar.error("🛑 Không tìm thấy API Key!")
-    st.stop()
-
 if 'key_manager' not in st.session_state:
     st.session_state.key_manager = {
-        i: {"status": "ACTIVE", "in_use": False, "last_finished": datetime.now() - timedelta(seconds=60), "key": k} 
+        i: {"status": "ACTIVE", "in_use": False, "last_finished": datetime.now() - timedelta(seconds=60), "key": k, "batch_info": ""} 
         for i, k in enumerate(VALID_KEYS)
     }
 if 'glossary' not in st.session_state: st.session_state.glossary = ""
@@ -59,27 +49,15 @@ status_lock = threading.Lock()
 worker_status_lock = threading.Lock()
 
 # =========================================================
-# HÀM PHÁP THUẬT (MODEL 3 ONLY)
+# PHÁP THUẬT XỬ LÝ (MODEL 3)
 # =========================================================
-
-def check_key_health(key_info, model_name):
-    """Kiểm tra sức khỏe Key"""
-    try:
-        client = genai.Client(api_key=key_info["key"])
-        client.models.generate_content(model=model_name, contents="hi", config=types.GenerateContentConfig(max_output_tokens=1))
-        return True
-    except Exception as e:
-        msg = str(e).lower()
-        if any(x in msg for x in ["401", "invalid", "expired", "not found"]):
-            return False
-        return True
 
 def call_gemini_translate(api_key, text_data, expected_count, glossary, model_name):
     try:
         client = genai.Client(api_key=api_key)
         sys_prompt = f"""Dịch {expected_count} đoạn SRT sang tiếng Việt Tiên Hiệp.
 THUẬT NGỮ: {glossary}
-YÊU CẦU: Định dạng SRT chuẩn, Hán-Việt, khớp miệng, đủ {expected_count} đoạn."""
+YÊU CẦU: Trả về đúng định dạng SRT, khớp miệng, đủ {expected_count} đoạn."""
         
         response = client.models.generate_content(
             model=model_name, 
@@ -87,28 +65,27 @@ YÊU CẦU: Định dạng SRT chuẩn, Hán-Việt, khớp miệng, đủ {expe
             config=types.GenerateContentConfig(temperature=0.3)
         )
         res = response.text.strip() if response.text else ""
-        match = re.search(r"(\d+\n\d{2}:\d{2}:\d{2},\d{3} -->.*)", res, re.DOTALL)
-        return match.group(1) if match else res
-    except Exception as e: return f"ERR: {str(e)}"
+        if "-->" not in res: return f"ERR_FORMAT: AI không trả về SRT"
+        return res
+    except Exception as e:
+        return f"ERR_API: {str(e)}"
 
 # =========================================================
-# GIAO DIỆN CHÍNH
+# GIAO DIỆN
 # =========================================================
 with st.sidebar:
-    st.title("🔱 THIÊN QUÂN v75.5")
+    st.title("🔱 THIÊN QUÂN v75.6")
     file = st.file_uploader("📜 Nạp bí tịch (.srt)", type=["srt"])
-    
-    model_choice = st.selectbox("🔮 Model 3", [
-        "gemini-3-flash-preview", "gemini-3.1-pro-preview", "gemini-3.1-flash-lite-preview"
-    ], index=0)
-    
+    model_choice = st.selectbox("🔮 Model 3", ["gemini-3-flash-preview", "gemini-3.1-pro-preview", "gemini-3.1-flash-lite-preview"], index=0)
     b_size = st.number_input("Số đoạn/Lô", 10, 100, 50)
     c_time = st.number_input("Giây nghỉ/Key", 5, 60, 15)
     n_workers = st.slider("Số luồng xử lý", 1, 10, 4)
 
-    if st.button("♻️ RESET HỆ THỐNG", use_container_width=True):
+    if st.button("♻️ RESET & GIẢI KẸT KEY"):
         st.session_state.final_results = None
-        for i in manager: manager[i]["status"] = "ACTIVE"
+        for i in manager:
+            manager[i]["status"] = "ACTIVE"
+            manager[i]["in_use"] = False
         st.rerun()
 
 tab1, tab2 = st.tabs(["📝 TỪ ĐIỂN", "⚔️ KHAI TRẬN"])
@@ -129,100 +106,90 @@ with tab2:
             w_places = [st.empty() for _ in range(n_workers)]
             st.divider()
             p_bar = st.progress(0); p_text = st.empty()
-            start_btn = st.button("⚔️ THANH LỌC & DỊCH", use_container_width=True, type="primary")
+            start_btn = st.button("⚔️ KHAI TRẬN DỊCH FULL", use_container_width=True, type="primary")
 
         def update_ui(worker_map):
             now = datetime.now()
             for i, k in manager.items():
                 diff = (now - k["last_finished"]).total_seconds()
                 if k["status"] == "DEAD": cls, txt = "k-dead", "💀 HỎNG"
-                elif k["in_use"]: cls, txt = "k-busy", "⚔️ DỊCH"
+                elif k["in_use"]: cls, txt = "k-busy", f"⚔️ {k['batch_info']}"
                 elif diff < c_time: cls, txt = "k-cool", f"🧘 {int(c_time-diff)}s"
-                else: cls, txt = "k-active", "✅ SẴN"
+                else: cls, txt = "k-active", "✅ SẴN SÀNG"
                 k_places[i].markdown(f"<div class='key-box {cls}'><b>#{i+1}</b><br>{txt}</div>", unsafe_allow_html=True)
             for i in range(n_workers):
                 info = worker_map.get(i, {"msg": "Đang chờ...", "style": "w-idle"})
                 w_places[i].markdown(f"<div class='w-box {info['style']}'><b>L {i+1}</b>: {info['msg']}</div>", unsafe_allow_html=True)
 
         if start_btn:
-            # --- BƯỚC 1: THANH LỌC ĐA LUỒNG (TRÁNH TREO) ---
-            p_text.warning("🔍 Đang thanh lọc linh thạch...")
+            from streamlit.runtime.scriptrunner import add_script_run_context, get_script_run_context
             main_ctx = get_script_run_context()
             
-            def fast_check(idx):
-                add_script_run_context(main_ctx)
-                if not check_key_health(manager[idx], model_choice):
-                    with status_lock: manager[idx]["status"] = "DEAD"
-
-            with ThreadPoolExecutor(max_workers=10) as check_exec:
-                check_exec.map(fast_check, range(len(VALID_KEYS)))
-            
-            if not any(k["status"] == "ACTIVE" for k in manager.values()):
-                st.error("🛑 Không còn Key nào sống!")
-                st.stop()
-
-            # --- BƯỚC 2: KHAI TRẬN DỊCH ---
             raw = file.getvalue().decode("utf-8-sig", errors="replace").strip()
             blocks = [b.strip() for b in re.split(r'\n\s*\n', raw) if b.strip()]
             batches = [blocks[i:i + b_size] for i in range(0, len(blocks), b_size)]
-            total = len(batches)
-            results, stats = {}, {"done": 0, "fail": 0}
-            worker_map = {i: {"msg": "Khởi động...", "style": "w-idle"} for i in range(n_workers)}
+            
+            results = {}; stats = {"done": 0, "total": len(batches)}
+            worker_map = {i: {"msg": "Sẵn sàng", "style": "w-idle"} for i in range(n_workers)}
+            task_queue = Queue()
+            for i, b in enumerate(batches): task_queue.put((i, b))
 
-            def worker_logic(batch_idx, worker_id):
+            def worker_thread(worker_id):
                 add_script_run_context(main_ctx)
-                chunk_text = "\n\n".join(batches[batch_idx])
-                expected = len(batches[batch_idx])
-                
-                while True:
-                    if not any(k["status"] == "ACTIVE" for k in manager.values()):
-                        with worker_status_lock: worker_map[worker_id] = {"msg": "Hết Key!", "style": "w-retry"}
-                        return False # Báo lỗi cho đại trận
+                while not task_queue.empty():
+                    batch_idx, chunk_blocks = task_queue.get()
+                    expected = len(chunk_blocks)
+                    chunk_text = "\n\n".join(chunk_blocks)
+                    success = False
                     
-                    cur_k = None
-                    with status_lock:
-                        for idx, k in manager.items():
-                            if k["status"] == "ACTIVE" and not k["in_use"] and (datetime.now() - k["last_finished"]).total_seconds() >= c_time:
-                                cur_k = idx; k["in_use"] = True; break
-                    
-                    if cur_k is None:
-                        with worker_status_lock: worker_map[worker_id] = {"msg": f"Lô {batch_idx+1}: Chờ Key...", "style": "w-retry"}
-                        time.sleep(2); continue
-                    
-                    with worker_status_lock: worker_map[worker_id] = {"msg": f"Lô {batch_idx+1}: Dịch...", "style": "w-run"}
-                    res = call_gemini_translate(manager[cur_k]["key"], chunk_text, expected, st.session_state.glossary, model_choice)
-                    
-                    with status_lock:
-                        manager[cur_k]["last_finished"] = datetime.now(); manager[cur_k]["in_use"] = False
-                        if res.count("-->") >= expected:
-                            results[batch_idx] = res; stats["done"] += 1
-                            with worker_status_lock: worker_map[worker_id] = {"msg": f"Lô {batch_idx+1}: ✅ Xong", "style": "w-done"}
-                            return True
-                        else:
-                            if "401" in res or "INVALID" in res: manager[cur_k]["status"] = "DEAD"
-                            time.sleep(1)
+                    while not success:
+                        cur_k = None
+                        with status_lock:
+                            for idx, k in manager.items():
+                                if k["status"] == "ACTIVE" and not k["in_use"] and (datetime.now() - k["last_finished"]).total_seconds() >= c_time:
+                                    cur_k = idx; k["in_use"] = True; k["batch_info"] = f"Lô {batch_idx+1}"; break
+                        
+                        if cur_k is None:
+                            if not any(k["status"] == "ACTIVE" for k in manager.values()):
+                                with worker_status_lock: worker_map[worker_id] = {"msg": "CẠN KEY!", "style": "w-retry"}
+                                task_queue.put((batch_idx, chunk_blocks))
+                                return
+                            with worker_status_lock: worker_map[worker_id] = {"msg": f"Lô {batch_idx+1}: Chờ Key...", "style": "w-retry"}
+                            time.sleep(2); continue
 
-            # Chạy Executor và theo dõi sát sao
+                        try:
+                            with worker_status_lock: worker_map[worker_id] = {"msg": f"Lô {batch_idx+1}: Dịch...", "style": "w-run"}
+                            res = call_gemini_translate(manager[cur_k]["key"], chunk_text, expected, st.session_state.glossary, model_choice)
+                            
+                            if "ERR" not in res and res.count("-->") >= expected:
+                                results[batch_idx] = res
+                                with status_lock: stats["done"] += 1
+                                with worker_status_lock: worker_map[worker_id] = {"msg": f"Lô {batch_idx+1}: Xong", "style": "w-done"}
+                                success = True
+                            else:
+                                # Nếu lỗi rõ ràng là do Key
+                                if any(x in res.upper() for x in ["401", "429", "INVALID", "QUOTA", "PERMISSION"]):
+                                    with status_lock: manager[cur_k]["status"] = "DEAD"
+                                time.sleep(1)
+                                # Thất bại thì quay lại vòng lặp while not success để tìm key khác
+                        finally:
+                            with status_lock:
+                                manager[cur_k]["in_use"] = False
+                                manager[cur_k]["last_finished"] = datetime.now()
+                                manager[cur_k]["batch_info"] = ""
+                    
+                    task_queue.task_done()
+
             with ThreadPoolExecutor(max_workers=n_workers) as executor:
-                future_to_batch = {executor.submit(worker_logic, i, i % n_workers): i for i in range(total)}
-                
-                while stats["done"] + stats["fail"] < total:
+                for i in range(n_workers): executor.submit(worker_thread, i)
+                while stats["done"] < stats["total"]:
                     update_ui(worker_map)
-                    p_bar.progress(stats["done"] / total)
-                    p_text.info(f"Tiến độ: {stats['done']}/{total} lô")
-                    
-                    # Kiểm tra xem có lô nào bị thất bại không
-                    for future in list(future_to_batch.keys()):
-                        if future.done():
-                            if future.result() is False: stats["fail"] += 1
-                            del future_to_batch[future]
-                    
-                    if not any(k["status"] == "ACTIVE" for k in manager.values()) and stats["done"] < total:
-                        st.error("🛑 Cạn kiệt linh lực! Dịch thuật bị gián đoạn.")
-                        break
+                    p_bar.progress(stats["done"] / stats["total"])
+                    p_text.info(f"Tiến độ: {stats['done']}/{stats['total']} lô")
+                    if not any(k["status"] == "ACTIVE" for k in manager.values()): break
                     time.sleep(1)
 
-            if stats["done"] == total:
+            if stats["done"] == stats["total"]:
                 st.session_state.final_results = "\n\n".join([results[i] for i in sorted(results.keys())])
                 st.rerun()
 
@@ -231,4 +198,4 @@ with tab2:
 # =========================================================
 if st.session_state.final_results:
     st.success("🎉 Hoàn thành!")
-    st.download_button("📥 TẢI BẢN FULL", st.session_state.final_results, f"FULL_{file.name}", use_container_width=True, type="primary")
+    st.download_button("📥 TẢI BẢN FULL", st.session_state.final_results, f"DICH_FULL_{file.name}", use_container_width=True, type="primary")
